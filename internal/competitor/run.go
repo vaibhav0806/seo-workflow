@@ -94,6 +94,9 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	for _, target := range defaultCompetitors {
 		entries, fetchErr := fetcher.Fetch(ctx, target.SitemapURL)
 		if fetchErr != nil {
+			if ctx.Err() != nil {
+				return Summary{}, fmt.Errorf("fetch competitor sitemap %q: %w", target.Name, ctx.Err())
+			}
 			warnings = append(warnings, fmt.Sprintf("%s sitemap fetch failed: %v", target.Name, fetchErr))
 			competitorSnapshots = append(competitorSnapshots, SiteSnapshot{
 				Name:        target.Name,
