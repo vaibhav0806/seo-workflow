@@ -146,6 +146,17 @@ func logCompetitorSummary(summary competitor.Summary) {
 			topThemeCounts(competitorSnapshot.ThemeCounts, 5),
 		)
 	}
+	for idx, topic := range summary.ExtractedTopics {
+		log.Printf(
+			"topic_%d competitor=%q name=%q pages=%d why=%q evidence=%v",
+			idx+1,
+			topic.Competitor,
+			topic.Name,
+			topic.PageCount,
+			topic.WhyItMatters,
+			topic.EvidenceURLs,
+		)
+	}
 
 	for idx, opportunity := range summary.Opportunities {
 		log.Printf(
