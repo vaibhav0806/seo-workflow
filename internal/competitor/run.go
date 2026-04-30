@@ -68,6 +68,7 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 
 	windowStart := time.Now().UTC().AddDate(0, 0, -cfg.CompetitorWindowDays)
 	fetcher := NewSitemapFetcher(cfg.HTTPTimeoutSecs)
+	titleFetcher := NewTitleFetcher(cfg.HTTPTimeoutSecs)
 	warnings := make([]string, 0)
 
 	ourEntries, err := fetcher.Fetch(ctx, cfg.OurSitemapURL)
@@ -75,6 +76,8 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		return Summary{}, fmt.Errorf("fetch our sitemap: %w", err)
 	}
 	ourSnapshot := buildSnapshot("createos", cfg.OurSitemapURL, ourEntries, windowStart)
+	ourSnapshot, titleWarnings := enrichSnapshotTitles(ctx, titleFetcher, ourSnapshot, 40)
+	warnings = append(warnings, titleWarnings...)
 
 	competitorSnapshots := make([]SiteSnapshot, 0, len(defaultCompetitors))
 	for _, target := range defaultCompetitors {
@@ -89,7 +92,10 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 			})
 			continue
 		}
-		competitorSnapshots = append(competitorSnapshots, buildSnapshot(target.Name, target.SitemapURL, entries, windowStart))
+		snapshot := buildSnapshot(target.Name, target.SitemapURL, entries, windowStart)
+		snapshot, titleWarnings = enrichSnapshotTitles(ctx, titleFetcher, snapshot, 40)
+		warnings = append(warnings, titleWarnings...)
+		competitorSnapshots = append(competitorSnapshots, snapshot)
 	}
 
 	opportunities := deriveOpportunities(ourSnapshot, competitorSnapshots)
@@ -119,6 +125,29 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		Warnings:        warnings,
 		OpenRouterModel: strings.TrimSpace(cfg.OpenRouterModel),
 	}, nil
+}
+
+func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot SiteSnapshot, limit int) (SiteSnapshot, []string) {
+	if fetcher == nil || limit <= 0 {
+		return snapshot, nil
+	}
+
+	max := limit
+	if len(snapshot.RecentURLs) < max {
+		max = len(snapshot.RecentURLs)
+	}
+
+	warnings := make([]string, 0)
+	for idx := 0; idx < max; idx++ {
+		url := snapshot.RecentURLs[idx].URL
+		title, err := fetcher.FetchTitle(ctx, url)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("title fetch failed for %s: %v", url, err))
+			continue
+		}
+		snapshot.RecentURLs[idx].Title = title
+	}
+	return snapshot, warnings
 }
 
 func buildSnapshot(name string, sitemapURL string, entries []rawSitemapEntry, windowStart time.Time) SiteSnapshot {
