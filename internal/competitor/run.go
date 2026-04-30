@@ -126,12 +126,17 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	}
 
 	opportunities := deriveOpportunities(ourSnapshot, competitorSnapshots)
+	extractedTopics := []TopicSummary{}
 	if cfg.OpenRouterAPIKey != "" {
-		refined, refineErr := refineWithOpenRouter(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterModel, ourSnapshot, competitorSnapshots, opportunities)
-		if refineErr != nil {
-			warnings = append(warnings, fmt.Sprintf("openrouter refinement skipped: %v", refineErr))
+		topics, topicErr := extractTopicsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterModel, competitorSnapshots)
+		if topicErr != nil {
+			warnings = append(warnings, fmt.Sprintf("openrouter topic extraction skipped: %v", topicErr))
 		} else {
-			opportunities = refined
+			extractedTopics = topics
+			topicOpportunities := deriveTopicOpportunities(ourSnapshot, topics)
+			if len(topicOpportunities) > 0 {
+				opportunities = topicOpportunities
+			}
 		}
 	}
 
@@ -148,6 +153,7 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		WindowStartUTC:  windowStart.Format(time.RFC3339),
 		OurSite:         ourSnapshot,
 		Competitors:     competitorSnapshots,
+		ExtractedTopics: extractedTopics,
 		Opportunities:   opportunities,
 		Warnings:        warnings,
 		OpenRouterModel: strings.TrimSpace(cfg.OpenRouterModel),
