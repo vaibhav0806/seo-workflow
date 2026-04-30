@@ -17,6 +17,7 @@ type CompetitorTarget struct {
 
 type SitemapEntry struct {
 	URL       string   `json:"url"`
+	Title     string   `json:"title,omitempty"`
 	LastMod   *string  `json:"lastMod,omitempty"`
 	ThemeTags []string `json:"themeTags,omitempty"`
 }
