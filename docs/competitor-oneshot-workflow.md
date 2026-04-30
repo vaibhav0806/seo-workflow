@@ -54,3 +54,5 @@ go run ./cmd/worker
   - how to execute
   - impact score (1-100)
 - Optional JSON report file via `COMPETITOR_REPORT_PATH`.
+- Treat the report as a heuristic input, not a source of truth.
+- Prioritize exact URL evidence and ignore low-specificity phrases.
