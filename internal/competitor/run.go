@@ -2,9 +2,11 @@ package competitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nodeops/seo-workflow/internal/config"
@@ -61,6 +63,12 @@ var defaultCompetitors = []CompetitorTarget{
 	{Name: "replit", SitemapURL: "https://replit.com/sitemap.xml"},
 }
 
+const (
+	titleEnrichmentLimit       = 40
+	titleEnrichmentConcurrency = 8
+	titleEnrichmentTimeout     = 20 * time.Second
+)
+
 func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	if cfg == nil {
 		return Summary{}, fmt.Errorf("competitor config is nil")
@@ -76,7 +84,10 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		return Summary{}, fmt.Errorf("fetch our sitemap: %w", err)
 	}
 	ourSnapshot := buildSnapshot("createos", cfg.OurSitemapURL, ourEntries, windowStart)
-	ourSnapshot, titleWarnings := enrichSnapshotTitles(ctx, titleFetcher, ourSnapshot, 40)
+	ourSnapshot, titleWarnings, err := enrichSnapshotTitles(ctx, titleFetcher, ourSnapshot, titleEnrichmentLimit)
+	if err != nil {
+		return Summary{}, fmt.Errorf("title enrichment failed for createos: %w", err)
+	}
 	warnings = append(warnings, titleWarnings...)
 
 	competitorSnapshots := make([]SiteSnapshot, 0, len(defaultCompetitors))
@@ -93,7 +104,10 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 			continue
 		}
 		snapshot := buildSnapshot(target.Name, target.SitemapURL, entries, windowStart)
-		snapshot, titleWarnings = enrichSnapshotTitles(ctx, titleFetcher, snapshot, 40)
+		snapshot, titleWarnings, err = enrichSnapshotTitles(ctx, titleFetcher, snapshot, titleEnrichmentLimit)
+		if err != nil {
+			return Summary{}, fmt.Errorf("title enrichment failed for %s: %w", target.Name, err)
+		}
 		warnings = append(warnings, titleWarnings...)
 		competitorSnapshots = append(competitorSnapshots, snapshot)
 	}
@@ -127,27 +141,97 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	}, nil
 }
 
-func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot SiteSnapshot, limit int) (SiteSnapshot, []string) {
+func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot SiteSnapshot, limit int) (SiteSnapshot, []string, error) {
 	if fetcher == nil || limit <= 0 {
-		return snapshot, nil
+		return snapshot, nil, nil
 	}
 
 	max := limit
 	if len(snapshot.RecentURLs) < max {
 		max = len(snapshot.RecentURLs)
 	}
+	if max == 0 {
+		return snapshot, nil, nil
+	}
+
+	enrichCtx, cancel := context.WithTimeout(ctx, titleEnrichmentTimeout)
+	defer cancel()
+
+	workerCount := titleEnrichmentConcurrency
+	if max < workerCount {
+		workerCount = max
+	}
+
+	jobs := make(chan int, max)
+	for idx := 0; idx < max; idx++ {
+		jobs <- idx
+	}
+	close(jobs)
+
+	warningsByIndex := make([]string, max)
+	var firstCancelErr error
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for worker := 0; worker < workerCount; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				if enrichCtx.Err() != nil {
+					recordTitleEnrichmentError(&mu, &firstCancelErr, enrichCtx.Err())
+					continue
+				}
+
+				url := snapshot.RecentURLs[idx].URL
+				title, err := fetcher.FetchTitle(enrichCtx, url)
+				if err != nil {
+					if isContextError(err) {
+						recordTitleEnrichmentError(&mu, &firstCancelErr, err)
+					} else {
+						warningsByIndex[idx] = fmt.Sprintf("title fetch failed for %s: %v", url, err)
+					}
+					continue
+				}
+				snapshot.RecentURLs[idx].Title = title
+			}
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	err := firstCancelErr
+	mu.Unlock()
+	if err != nil {
+		return snapshot, nil, err
+	}
+	if enrichCtx.Err() != nil {
+		return snapshot, nil, enrichCtx.Err()
+	}
 
 	warnings := make([]string, 0)
-	for idx := 0; idx < max; idx++ {
-		url := snapshot.RecentURLs[idx].URL
-		title, err := fetcher.FetchTitle(ctx, url)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("title fetch failed for %s: %v", url, err))
+	for _, warning := range warningsByIndex {
+		if warning == "" {
 			continue
 		}
-		snapshot.RecentURLs[idx].Title = title
+		warnings = append(warnings, warning)
 	}
-	return snapshot, warnings
+	return snapshot, warnings, nil
+}
+
+func recordTitleEnrichmentError(mu *sync.Mutex, firstErr *error, err error) {
+	if err == nil {
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if *firstErr == nil {
+		*firstErr = err
+	}
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func buildSnapshot(name string, sitemapURL string, entries []rawSitemapEntry, windowStart time.Time) SiteSnapshot {
