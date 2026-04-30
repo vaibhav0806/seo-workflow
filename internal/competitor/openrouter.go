@@ -40,6 +40,16 @@ type llmTopicOutput struct {
 	Topics []TopicSummary `json:"topics"`
 }
 
+type topicPromptPage struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+type topicPromptCompetitor struct {
+	Competitor string            `json:"competitor"`
+	Pages      []topicPromptPage `json:"pages"`
+}
+
 func refineWithOpenRouter(
 	ctx context.Context,
 	apiKey string,
@@ -148,4 +158,160 @@ func extractJSONObject(raw string) string {
 		return ""
 	}
 	return strings.TrimSpace(raw[start : end+1])
+}
+
+func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, competitors []SiteSnapshot) ([]TopicSummary, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "moonshotai/kimi-k2"
+	}
+
+	input := buildTopicPromptInput(competitors, 40)
+	inputBytes, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("marshal topic prompt input: %w", err)
+	}
+
+	systemPrompt := "You are an SEO strategist. Return only strict JSON with key topics[]."
+	userPrompt := "Analyze competitor page titles and URLs, then return 5-8 concrete themes per competitor. Ignore locale/translation, faq, careers/jobs, gallery, legal/privacy/terms, and company/about/team pages. Each theme item must include competitor, name, pageCount, representativeTitles, evidenceUrls, whyItMatters. JSON only. Data: " + string(inputBytes)
+
+	requestBody := openRouterRequest{
+		Model:       model,
+		Temperature: 0.2,
+		Messages: []openRouterMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	payload, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal openrouter topic request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterEndpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build openrouter topic request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute openrouter topic request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("openrouter topic status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var parsed openRouterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode openrouter topic response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return nil, fmt.Errorf("openrouter topic response returned no choices")
+	}
+
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	if content == "" {
+		return nil, fmt.Errorf("openrouter topic response returned empty content")
+	}
+
+	clean := extractJSONObject(content)
+	if clean == "" {
+		return nil, fmt.Errorf("openrouter topic response had no json object")
+	}
+
+	var out llmTopicOutput
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
+		return nil, fmt.Errorf("unmarshal openrouter topic json: %w", err)
+	}
+
+	return normalizeTopicSummaries(out.Topics), nil
+}
+
+func buildTopicPromptInput(competitors []SiteSnapshot, limit int) []topicPromptCompetitor {
+	if limit <= 0 {
+		return nil
+	}
+	result := make([]topicPromptCompetitor, 0, len(competitors))
+	for _, competitor := range competitors {
+		if strings.TrimSpace(competitor.Name) == "" || competitor.Error != "" {
+			continue
+		}
+		pages := make([]topicPromptPage, 0, limit)
+		for _, entry := range competitor.RecentURLs {
+			if len(pages) >= limit {
+				break
+			}
+			title := strings.TrimSpace(entry.Title)
+			url := strings.TrimSpace(entry.URL)
+			if title == "" || url == "" {
+				continue
+			}
+			pages = append(pages, topicPromptPage{
+				Title: title,
+				URL:   url,
+			})
+		}
+		if len(pages) == 0 {
+			continue
+		}
+		result = append(result, topicPromptCompetitor{
+			Competitor: strings.TrimSpace(competitor.Name),
+			Pages:      pages,
+		})
+	}
+	return result
+}
+
+func normalizeTopicSummaries(topics []TopicSummary) []TopicSummary {
+	normalized := make([]TopicSummary, 0, len(topics))
+	for _, topic := range topics {
+		competitor := strings.TrimSpace(topic.Competitor)
+		name := strings.TrimSpace(topic.Name)
+		if competitor == "" || name == "" {
+			continue
+		}
+
+		repTitles := make([]string, 0, 5)
+		for _, title := range topic.RepresentativeTitles {
+			title = strings.TrimSpace(title)
+			if title == "" {
+				continue
+			}
+			repTitles = append(repTitles, title)
+			if len(repTitles) == 5 {
+				break
+			}
+		}
+
+		evidenceURLs := make([]string, 0, 5)
+		for _, evidenceURL := range topic.EvidenceURLs {
+			evidenceURL = strings.TrimSpace(evidenceURL)
+			if evidenceURL == "" {
+				continue
+			}
+			evidenceURLs = append(evidenceURLs, evidenceURL)
+			if len(evidenceURLs) == 5 {
+				break
+			}
+		}
+
+		normalized = append(normalized, TopicSummary{
+			Competitor:           competitor,
+			Name:                 name,
+			PageCount:            max(0, topic.PageCount),
+			RepresentativeTitles: repTitles,
+			EvidenceURLs:         evidenceURLs,
+			WhyItMatters:         strings.TrimSpace(topic.WhyItMatters),
+		})
+	}
+	return normalized
 }
