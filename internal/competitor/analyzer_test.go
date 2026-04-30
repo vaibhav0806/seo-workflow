@@ -54,6 +54,39 @@ func TestDeriveOpportunitiesPrefersTopicSpecificSignals(t *testing.T) {
 	require.False(t, hasIncident)
 }
 
+func TestDeriveTopicOpportunitiesSkipsCoveredCreateOSThemes(t *testing.T) {
+	ours := SiteSnapshot{
+		Name: "createos",
+		RecentURLs: []SitemapEntry{
+			{URL: "https://createos.sh/blogs/agentic-deployments-ai-agents-createos", Title: "Agentic deployments for AI agents with CreateOS"},
+		},
+	}
+	topics := []TopicSummary{
+		{
+			Competitor:           "vercel",
+			Name:                 "AI gateway integrations with coding agents",
+			PageCount:            8,
+			RepresentativeTitles: []string{"Coding Agents · AI Gateway"},
+			EvidenceURLs:         []string{"https://vercel.com/docs/ai-gateway/coding-agents"},
+			WhyItMatters:         "Vercel is building agent infrastructure intent.",
+		},
+		{
+			Competitor:           "lovable",
+			Name:                 "Template gallery for SaaS apps",
+			PageCount:            6,
+			RepresentativeTitles: []string{"SaaS templates"},
+			EvidenceURLs:         []string{"https://lovable.dev/templates/apps/saas"},
+			WhyItMatters:         "Lovable is capturing ready-to-build SaaS intent.",
+		},
+	}
+
+	opportunities := deriveTopicOpportunities(ours, topics)
+
+	require.Len(t, opportunities, 1)
+	require.Equal(t, "CreateOS should cover \"Template gallery for SaaS apps\"", opportunities[0].Title)
+	require.Equal(t, "llm-topic-gap", opportunities[0].OpportunityType)
+}
+
 func TestInferDateFromURL(t *testing.T) {
 	dt := inferDateFromURL("https://example.com/blog/2026/04/29/agent-release")
 	require.NotNil(t, dt)

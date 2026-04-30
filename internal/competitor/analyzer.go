@@ -177,6 +177,66 @@ func deriveOpportunities(ours SiteSnapshot, competitors []SiteSnapshot) []Opport
 	return opportunities
 }
 
+func deriveTopicOpportunities(ours SiteSnapshot, topics []TopicSummary) []Opportunity {
+	ourTitleText := strings.ToLower(joinEntryTitlesAndURLs(ours.RecentURLs))
+	opportunities := make([]Opportunity, 0)
+
+	for _, topic := range topics {
+		if topic.PageCount < 2 {
+			continue
+		}
+		topicName := strings.ToLower(topic.Name)
+		if themeCoveredByCreateOS(topicName, ourTitleText) {
+			continue
+		}
+
+		opportunities = append(opportunities, Opportunity{
+			Title:           fmt.Sprintf("CreateOS should cover %q", topic.Name),
+			WhyItMatters:    topic.WhyItMatters,
+			WhatToDo:        fmt.Sprintf("Ship one focused page or article for %s using the competitor evidence as the outline.", topic.Name),
+			HowToExecute:    topicExecutionPlan(topic),
+			ImpactScore:     clampImpact(55 + min(topic.PageCount, 8)*5),
+			Competitor:      topic.Competitor,
+			Theme:           phraseTheme(topic.Name),
+			OpportunityType: "llm-topic-gap",
+			Evidence:        topic.EvidenceURLs,
+		})
+	}
+
+	return opportunities
+}
+
+func joinEntryTitlesAndURLs(entries []SitemapEntry) string {
+	parts := make([]string, 0, len(entries)*2)
+	for _, entry := range entries {
+		parts = append(parts, entry.Title, entry.URL)
+	}
+	return strings.Join(parts, " ")
+}
+
+func themeCoveredByCreateOS(topicName string, ourText string) bool {
+	keyTerms := filteredTokens(topicName)
+	matches := 0
+	for _, term := range keyTerms {
+		if _, generic := genericPathTokens[term]; generic {
+			continue
+		}
+		if strings.Contains(ourText, term) {
+			matches++
+		}
+	}
+	return matches >= 2
+}
+
+func topicExecutionPlan(topic TopicSummary) []string {
+	slug := strings.ToLower(strings.ReplaceAll(topic.Name, " ", "-"))
+	return []string{
+		fmt.Sprintf("Create `/blogs/%s` or a dedicated landing page with this exact theme.", slug),
+		"Use the representative competitor titles as H2 sections, but write CreateOS-specific examples.",
+		"Link the page from homepage, docs, and relevant case studies, then request indexing.",
+	}
+}
+
 func buildExecutionPlan(phrase string, competitor string, evidence []string) []string {
 	example := ""
 	if len(evidence) > 0 {
