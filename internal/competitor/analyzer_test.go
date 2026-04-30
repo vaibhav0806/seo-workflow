@@ -87,6 +87,90 @@ func TestDeriveTopicOpportunitiesSkipsCoveredCreateOSThemes(t *testing.T) {
 	require.Equal(t, "llm-topic-gap", opportunities[0].OpportunityType)
 }
 
+func TestDeriveTopicOpportunitiesSkipsSingleKeywordCoveredTopic(t *testing.T) {
+	ours := SiteSnapshot{
+		Name: "createos",
+		RecentURLs: []SitemapEntry{
+			{URL: "https://createos.sh/blogs/mcp-server-setup", Title: "MCP server setup"},
+		},
+	}
+	topics := []TopicSummary{
+		{
+			Competitor:   "vercel",
+			Name:         "MCP",
+			PageCount:    6,
+			EvidenceURLs: []string{"https://vercel.com/docs/mcp"},
+			WhyItMatters: "MCP demand is rising.",
+		},
+		{
+			Competitor:   "vercel",
+			Name:         "Template gallery for SaaS apps",
+			PageCount:    6,
+			EvidenceURLs: []string{"https://vercel.com/templates/saas"},
+			WhyItMatters: "Template demand is rising.",
+		},
+	}
+
+	opportunities := deriveTopicOpportunities(ours, topics)
+	require.Len(t, opportunities, 1)
+	require.Equal(t, "CreateOS should cover \"Template gallery for SaaS apps\"", opportunities[0].Title)
+}
+
+func TestDeriveTopicOpportunitiesAvoidsSubstringFalsePositive(t *testing.T) {
+	ours := SiteSnapshot{
+		Name: "createos",
+		RecentURLs: []SitemapEntry{
+			{URL: "https://createos.sh/blogs/capital-structure-basics", Title: "Capital structure basics"},
+		},
+	}
+	topics := []TopicSummary{
+		{
+			Competitor:   "lovable",
+			Name:         "API integrations",
+			PageCount:    4,
+			EvidenceURLs: []string{"https://lovable.dev/docs/api/integrations"},
+			WhyItMatters: "Integration intent.",
+		},
+	}
+
+	opportunities := deriveTopicOpportunities(ours, topics)
+	require.Len(t, opportunities, 1)
+	require.Equal(t, "CreateOS should cover \"API integrations\"", opportunities[0].Title)
+}
+
+func TestDeriveTopicOpportunitiesScoresLessCoveredTopicHigher(t *testing.T) {
+	ours := SiteSnapshot{
+		Name: "createos",
+		RecentURLs: []SitemapEntry{
+			{URL: "https://createos.sh/blogs/ai-agent-deployment-guide", Title: "AI agent deployment guide"},
+		},
+	}
+	topics := []TopicSummary{
+		{
+			Competitor:   "vercel",
+			Name:         "AI agent deployment",
+			PageCount:    6,
+			EvidenceURLs: []string{"https://vercel.com/docs/ai/agent/deployment"},
+			WhyItMatters: "Covered-ish topic.",
+		},
+		{
+			Competitor:   "vercel",
+			Name:         "MCP security hardening",
+			PageCount:    6,
+			EvidenceURLs: []string{"https://vercel.com/docs/mcp/security"},
+			WhyItMatters: "Less covered topic.",
+		},
+	}
+
+	opportunities := deriveTopicOpportunities(ours, topics)
+	require.Len(t, opportunities, 1)
+	require.Equal(t, "CreateOS should cover \"MCP security hardening\"", opportunities[0].Title)
+
+	coveredScore := scoreLLMTopicGap(6, 1, 3)
+	uncoveredScore := scoreLLMTopicGap(6, 3, 3)
+	require.Greater(t, uncoveredScore, coveredScore)
+}
+
 func TestInferDateFromURL(t *testing.T) {
 	dt := inferDateFromURL("https://example.com/blog/2026/04/29/agent-release")
 	require.NotNil(t, dt)

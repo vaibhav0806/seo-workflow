@@ -178,24 +178,26 @@ func deriveOpportunities(ours SiteSnapshot, competitors []SiteSnapshot) []Opport
 }
 
 func deriveTopicOpportunities(ours SiteSnapshot, topics []TopicSummary) []Opportunity {
-	ourTitleText := strings.ToLower(joinEntryTitlesAndURLs(ours.RecentURLs))
+	ourTokens := tokenFrequency(joinEntryTitlesAndURLs(ours.RecentURLs))
 	opportunities := make([]Opportunity, 0)
 
 	for _, topic := range topics {
 		if topic.PageCount < 2 {
 			continue
 		}
-		topicName := strings.ToLower(topic.Name)
-		if themeCoveredByCreateOS(topicName, ourTitleText) {
+		topicTokens := filteredTokens(topic.Name)
+		matchedTokens, totalTokens := topicCoverage(topicTokens, ourTokens)
+		if themeCoveredByCreateOS(topic.Name, ourTokens) {
 			continue
 		}
+		uncoveredTokens := max(totalTokens-matchedTokens, 0)
 
 		opportunities = append(opportunities, Opportunity{
 			Title:           fmt.Sprintf("CreateOS should cover %q", topic.Name),
 			WhyItMatters:    topic.WhyItMatters,
 			WhatToDo:        fmt.Sprintf("Ship one focused page or article for %s using the competitor evidence as the outline.", topic.Name),
 			HowToExecute:    topicExecutionPlan(topic),
-			ImpactScore:     clampImpact(55 + min(topic.PageCount, 8)*5),
+			ImpactScore:     scoreLLMTopicGap(topic.PageCount, uncoveredTokens, totalTokens),
 			Competitor:      topic.Competitor,
 			Theme:           phraseTheme(topic.Name),
 			OpportunityType: "llm-topic-gap",
@@ -214,18 +216,56 @@ func joinEntryTitlesAndURLs(entries []SitemapEntry) string {
 	return strings.Join(parts, " ")
 }
 
-func themeCoveredByCreateOS(topicName string, ourText string) bool {
-	keyTerms := filteredTokens(topicName)
+func tokenFrequency(raw string) map[string]int {
+	out := map[string]int{}
+	for _, token := range filteredTokens(raw) {
+		out[token]++
+	}
+	return out
+}
+
+func topicCoverage(topicTokens []string, ourTokens map[string]int) (int, int) {
+	seen := map[string]struct{}{}
 	matches := 0
-	for _, term := range keyTerms {
-		if _, generic := genericPathTokens[term]; generic {
+	total := 0
+	for _, token := range topicTokens {
+		if token == "" {
 			continue
 		}
-		if strings.Contains(ourText, term) {
+		if _, generic := genericPathTokens[token]; generic {
+			continue
+		}
+		if _, already := seen[token]; already {
+			continue
+		}
+		seen[token] = struct{}{}
+		total++
+		if ourTokens[token] > 0 {
 			matches++
 		}
 	}
-	return matches >= 2
+	return matches, total
+}
+
+func themeCoveredByCreateOS(topicName string, ourTokens map[string]int) bool {
+	matches, total := topicCoverage(filteredTokens(topicName), ourTokens)
+	if total == 0 {
+		return false
+	}
+	if total == 1 {
+		return matches == 1
+	}
+	needed := max(2, (total+1)/2)
+	return matches >= needed
+}
+
+func scoreLLMTopicGap(pageCount int, uncoveredTokens int, totalTokens int) int {
+	uncoveredPercent := 0
+	if totalTokens > 0 {
+		uncoveredPercent = (uncoveredTokens * 100) / totalTokens
+	}
+	score := 35 + min(pageCount, 10)*4 + uncoveredPercent/2 + min(uncoveredTokens, 4)*3
+	return clampImpact(score)
 }
 
 func topicExecutionPlan(topic TopicSummary) []string {
