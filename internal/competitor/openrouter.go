@@ -36,6 +36,10 @@ type llmOpportunityOutput struct {
 	Opportunities []Opportunity `json:"opportunities"`
 }
 
+type llmTopicOutput struct {
+	Topics []TopicSummary `json:"topics"`
+}
+
 func refineWithOpenRouter(
 	ctx context.Context,
 	apiKey string,

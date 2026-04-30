@@ -46,12 +46,22 @@ type Opportunity struct {
 	Evidence        []string `json:"evidence"`
 }
 
+type TopicSummary struct {
+	Competitor           string   `json:"competitor"`
+	Name                 string   `json:"name"`
+	PageCount            int      `json:"pageCount"`
+	RepresentativeTitles []string `json:"representativeTitles"`
+	EvidenceURLs         []string `json:"evidenceUrls"`
+	WhyItMatters         string   `json:"whyItMatters"`
+}
+
 type Summary struct {
 	GeneratedAtUTC  string         `json:"generatedAtUtc"`
 	WindowDays      int            `json:"windowDays"`
 	WindowStartUTC  string         `json:"windowStartUtc"`
 	OurSite         SiteSnapshot   `json:"ourSite"`
 	Competitors     []SiteSnapshot `json:"competitors"`
+	ExtractedTopics []TopicSummary `json:"extractedTopics,omitempty"`
 	Opportunities   []Opportunity  `json:"opportunities"`
 	Warnings        []string       `json:"warnings"`
 	OpenRouterModel string         `json:"openRouterModel,omitempty"`
