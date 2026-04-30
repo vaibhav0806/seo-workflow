@@ -26,7 +26,7 @@ var themeKeywordMap = map[string][]string{
 }
 
 var incidentTokens = map[string]struct{}{
-	"breach": {}, "incident": {}, "vulnerability": {}, "outage": {}, "downtime": {}, "security": {},
+	"breach": {}, "incident": {}, "vulnerability": {}, "outage": {}, "downtime": {}, "cve": {},
 }
 
 var genericPathTokens = map[string]struct{}{
@@ -36,6 +36,14 @@ var genericPathTokens = map[string]struct{}{
 	"articles": {}, "guide": {}, "guides": {}, "how": {}, "what": {}, "why": {}, "best": {},
 	"new": {}, "top": {}, "home": {}, "homepage": {}, "terms": {}, "privacy": {}, "legal": {},
 	"overview": {}, "intro": {}, "introduction": {}, "index": {}, "category": {}, "categories": {},
+	"pt": {}, "br": {}, "de": {}, "es": {}, "fr": {}, "ja": {}, "ko": {}, "zh": {},
+	"en": {}, "it": {}, "nl": {}, "ru": {}, "tr": {}, "jp": {}, "cn": {}, "tw": {},
+	"faq": {}, "about": {}, "company": {}, "team": {}, "careers": {}, "jobs": {},
+	"gallery": {}, "life": {}, "entertainment": {}, "education": {}, "users": {},
+	"community": {}, "forum": {}, "talk": {}, "support": {}, "help": {},
+	"login": {}, "signup": {}, "auth": {}, "dashboard": {}, "account": {}, "settings": {},
+	"customers": {}, "customer": {}, "case": {}, "studies": {}, "stories": {},
+	"author": {}, "authors": {}, "tag": {}, "tags": {},
 }
 
 var specificPathTokens = map[string]struct{}{
@@ -80,6 +88,8 @@ func deriveOpportunities(ours SiteSnapshot, competitors []SiteSnapshot) []Opport
 		}
 
 		signals := buildTopicSignals(competitor)
+		signals = dedupeSignalsByURLs(signals)
+		signals = dedupeBySubstring(signals)
 		competitorOpportunities := make([]Opportunity, 0)
 
 		for phrase, signal := range signals {
@@ -109,7 +119,7 @@ func deriveOpportunities(ours SiteSnapshot, competitors []SiteSnapshot) []Opport
 		}
 
 		incidentURLs := findIncidentURLs(competitor)
-		if len(incidentURLs) > 0 {
+		if len(incidentURLs) >= 2 {
 			competitorOpportunities = append(competitorOpportunities, Opportunity{
 				Title:           fmt.Sprintf("CreateOS can exploit a trust opening vs %s", titleWord(competitor.Name)),
 				WhyItMatters:    "Security, outage, or incident language in competitor pages is a stronger signal than broad content volume.",
@@ -120,23 +130,6 @@ func deriveOpportunities(ours SiteSnapshot, competitors []SiteSnapshot) []Opport
 				Theme:           "security",
 				OpportunityType: "incident-response",
 				Evidence:        incidentURLs,
-			})
-		}
-
-		if competitor.RecentURLCount > ours.RecentURLCount*2 && competitor.RecentURLCount-ours.RecentURLCount >= 10 {
-			competitorOpportunities = append(competitorOpportunities, Opportunity{
-				Title:           fmt.Sprintf("%s is publishing much faster than CreateOS", titleWord(competitor.Name)),
-				WhyItMatters:    fmt.Sprintf("%s shipped %d recent URLs while CreateOS shipped %d.", competitor.Name, competitor.RecentURLCount, ours.RecentURLCount),
-				WhatToDo:        "Match their content velocity with a narrower, higher-intent CreateOS publishing loop.",
-				HowToExecute:    buildVelocityPlan(competitor.Name),
-				ImpactScore:     clampImpact(62 + (competitor.RecentURLCount-ours.RecentURLCount)/3),
-				Competitor:      competitor.Name,
-				Theme:           "distribution",
-				OpportunityType: "velocity-gap",
-				Evidence: []string{
-					fmt.Sprintf("%s recent URLs=%d", competitor.Name, competitor.RecentURLCount),
-					fmt.Sprintf("createos recent URLs=%d", ours.RecentURLCount),
-				},
 			})
 		}
 
@@ -273,6 +266,94 @@ func buildTopicSignals(snapshot SiteSnapshot) map[string]topicSignal {
 	return signals
 }
 
+func dedupeSignalsByURLs(signals map[string]topicSignal) map[string]topicSignal {
+	type kv struct {
+		k string
+		v topicSignal
+	}
+
+	list := make([]kv, 0, len(signals))
+	for k, v := range signals {
+		list = append(list, kv{k: k, v: v})
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if len(list[i].v.SampleURLs) == len(list[j].v.SampleURLs) {
+			if len(list[i].k) == len(list[j].k) {
+				return list[i].k > list[j].k
+			}
+			return len(list[i].k) > len(list[j].k)
+		}
+		return len(list[i].v.SampleURLs) > len(list[j].v.SampleURLs)
+	})
+
+	out := map[string]topicSignal{}
+	used := map[string]struct{}{}
+	for _, item := range list {
+		overlap := 0
+		for _, u := range item.v.SampleURLs {
+			if _, seen := used[u]; seen {
+				overlap++
+			}
+		}
+		if overlap >= 2 {
+			continue
+		}
+		out[item.k] = item.v
+		for _, u := range item.v.SampleURLs {
+			used[u] = struct{}{}
+		}
+	}
+	return out
+}
+
+func dedupeBySubstring(signals map[string]topicSignal) map[string]topicSignal {
+	keys := make([]string, 0, len(signals))
+	for k := range signals {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left := signals[keys[i]]
+		right := signals[keys[j]]
+		if left.Count != right.Count {
+			return left.Count > right.Count
+		}
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) < len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+
+	out := map[string]topicSignal{}
+	for _, k := range keys {
+		kept := false
+		for existing := range out {
+			if sharesTokens(k, existing, 2) {
+				kept = true
+				break
+			}
+		}
+		if !kept {
+			out[k] = signals[k]
+		}
+	}
+	return out
+}
+
+func sharesTokens(a, b string, threshold int) bool {
+	aTokens := map[string]struct{}{}
+	for _, t := range strings.Fields(a) {
+		aTokens[t] = struct{}{}
+	}
+	overlap := 0
+	for _, t := range strings.Fields(b) {
+		if _, ok := aTokens[t]; ok {
+			overlap++
+		}
+	}
+	return overlap >= threshold
+}
+
 type topicSignal struct {
 	Phrase      string
 	Theme       string
@@ -327,7 +408,7 @@ func phraseCandidates(tokens []string) []string {
 func phraseIsUseful(tokens []string) bool {
 	hasSpecific := false
 	for _, token := range tokens {
-		if len(token) < 2 {
+		if len(token) < 3 {
 			return false
 		}
 		if _, generic := genericPathTokens[token]; generic {
@@ -337,7 +418,34 @@ func phraseIsUseful(tokens []string) bool {
 			hasSpecific = true
 		}
 	}
-	return hasSpecific || len(tokens) >= 3
+	return hasSpecific
+}
+
+func isJunkPath(competitor string, rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	p := strings.ToLower(parsed.Path)
+
+	localePrefixes := []string{"/pt-br/", "/pt/", "/de/", "/es/", "/fr/", "/ja/", "/ko/", "/zh/", "/it/", "/nl/", "/ru/", "/tr/"}
+	for _, lp := range localePrefixes {
+		if strings.HasPrefix(p, lp) {
+			return true
+		}
+	}
+
+	blocked := map[string][]string{
+		"replit":  {"/gallery/", "/@", "/talk/", "/bounties/"},
+		"lovable": {"/faq/"},
+		"vercel":  {"/customers/", "/blog/author/"},
+	}
+	for _, bp := range blocked[competitor] {
+		if strings.HasPrefix(p, bp) {
+			return true
+		}
+	}
+	return false
 }
 
 func phraseSpecificity(phrase string) int {

@@ -128,6 +128,9 @@ func buildSnapshot(name string, sitemapURL string, entries []rawSitemapEntry, wi
 		if strings.TrimSpace(entry.URL) == "" {
 			continue
 		}
+		if isJunkPath(name, entry.URL) {
+			continue
+		}
 		themes := classifyThemes(entry.URL)
 		effectiveLastMod := entry.LastMod
 		if effectiveLastMod == nil {

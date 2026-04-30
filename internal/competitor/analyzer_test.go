@@ -51,7 +51,7 @@ func TestDeriveOpportunitiesPrefersTopicSpecificSignals(t *testing.T) {
 	}
 
 	require.True(t, hasTopicGap)
-	require.True(t, hasIncident)
+	require.False(t, hasIncident)
 }
 
 func TestInferDateFromURL(t *testing.T) {
