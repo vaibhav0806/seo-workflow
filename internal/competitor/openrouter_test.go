@@ -2,6 +2,7 @@ package competitor
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,3 +90,47 @@ func TestNormalizeTopicSummariesTrimsDropsInvalidAndCapsEvidence(t *testing.T) {
 	require.Equal(t, "repeated demand", out[0].WhyItMatters)
 }
 
+func TestBuildTopicPromptInputReturnsEmptyWhenNoTitles(t *testing.T) {
+	competitors := []SiteSnapshot{
+		{
+			Name: "vercel",
+			RecentURLs: []SitemapEntry{
+				{URL: "https://vercel.com/1", Title: ""},
+				{URL: "https://vercel.com/2", Title: " "},
+			},
+		},
+	}
+
+	out := buildTopicPromptInput(competitors, 40)
+	require.Empty(t, out)
+}
+
+func TestTrimTopicPromptInputToBytesStaysUnderCap(t *testing.T) {
+	longTitle := strings.Repeat("A", 500)
+	longURL := "https://example.com/" + strings.Repeat("segment-", 20)
+	input := []topicPromptCompetitor{
+		{
+			Competitor: "a",
+			Pages: []topicPromptPage{
+				{Title: longTitle, URL: longURL + "1"},
+				{Title: longTitle, URL: longURL + "2"},
+				{Title: longTitle, URL: longURL + "3"},
+			},
+		},
+		{
+			Competitor: "b",
+			Pages: []topicPromptPage{
+				{Title: longTitle, URL: longURL + "4"},
+				{Title: longTitle, URL: longURL + "5"},
+				{Title: longTitle, URL: longURL + "6"},
+			},
+		},
+	}
+
+	trimmed, payload, err := trimTopicPromptInputToBytes(input, 2500)
+	require.NoError(t, err)
+	require.NotEmpty(t, trimmed)
+	require.LessOrEqual(t, len(payload), 2500)
+	require.Equal(t, "a", trimmed[0].Competitor)
+	require.NotEmpty(t, trimmed[0].Pages)
+}

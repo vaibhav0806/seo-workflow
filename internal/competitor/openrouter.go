@@ -12,6 +12,7 @@ import (
 )
 
 const openRouterEndpoint = "https://openrouter.ai/api/v1/chat/completions"
+const topicPromptPayloadByteCap = 120_000
 
 type openRouterRequest struct {
 	Model       string              `json:"model"`
@@ -170,11 +171,16 @@ func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, comp
 	}
 
 	input := buildTopicPromptInput(competitors, 40)
-	inputBytes, err := json.Marshal(input)
-	if err != nil {
-		return nil, fmt.Errorf("marshal topic prompt input: %w", err)
+	if len(input) == 0 {
+		return nil, nil
 	}
-
+	input, inputBytes, err := trimTopicPromptInputToBytes(input, topicPromptPayloadByteCap)
+	if err != nil {
+		return nil, fmt.Errorf("trim topic prompt input: %w", err)
+	}
+	if len(input) == 0 {
+		return nil, nil
+	}
 	systemPrompt := "You are an SEO strategist. Return only strict JSON with key topics[]."
 	userPrompt := "Analyze competitor page titles and URLs, then return 5-8 concrete themes per competitor. Ignore locale/translation, faq, careers/jobs, gallery, legal/privacy/terms, and company/about/team pages. Each theme item must include competitor, name, pageCount, representativeTitles, evidenceUrls, whyItMatters. JSON only. Data: " + string(inputBytes)
 
@@ -314,4 +320,59 @@ func normalizeTopicSummaries(topics []TopicSummary) []TopicSummary {
 		})
 	}
 	return normalized
+}
+
+func trimTopicPromptInputToBytes(input []topicPromptCompetitor, capBytes int) ([]topicPromptCompetitor, []byte, error) {
+	if capBytes <= 0 {
+		return nil, nil, nil
+	}
+	trimmed := copyTopicPromptInput(input)
+	inputBytes, err := json.Marshal(trimmed)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(inputBytes) <= capBytes {
+		return trimmed, inputBytes, nil
+	}
+
+	for len(trimmed) > 0 {
+		pageRemoved := false
+		for idx := len(trimmed) - 1; idx >= 0; idx-- {
+			if len(trimmed[idx].Pages) == 0 {
+				continue
+			}
+			trimmed[idx].Pages = trimmed[idx].Pages[:len(trimmed[idx].Pages)-1]
+			pageRemoved = true
+			if len(trimmed[idx].Pages) == 0 {
+				trimmed = append(trimmed[:idx], trimmed[idx+1:]...)
+			}
+			break
+		}
+		if !pageRemoved {
+			return nil, nil, nil
+		}
+
+		inputBytes, err = json.Marshal(trimmed)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(inputBytes) <= capBytes {
+			return trimmed, inputBytes, nil
+		}
+	}
+
+	return nil, nil, nil
+}
+
+func copyTopicPromptInput(input []topicPromptCompetitor) []topicPromptCompetitor {
+	out := make([]topicPromptCompetitor, 0, len(input))
+	for _, competitor := range input {
+		pages := make([]topicPromptPage, len(competitor.Pages))
+		copy(pages, competitor.Pages)
+		out = append(out, topicPromptCompetitor{
+			Competitor: competitor.Competitor,
+			Pages:      pages,
+		})
+	}
+	return out
 }
