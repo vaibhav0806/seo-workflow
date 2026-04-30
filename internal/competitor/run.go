@@ -169,7 +169,7 @@ func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot S
 	close(jobs)
 
 	warningsByIndex := make([]string, max)
-	var firstCancelErr error
+	var firstParentErr error
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -179,7 +179,9 @@ func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot S
 			defer wg.Done()
 			for idx := range jobs {
 				if enrichCtx.Err() != nil {
-					recordTitleEnrichmentError(&mu, &firstCancelErr, enrichCtx.Err())
+					if ctx.Err() != nil {
+						recordTitleEnrichmentError(&mu, &firstParentErr, ctx.Err())
+					}
 					continue
 				}
 
@@ -187,7 +189,9 @@ func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot S
 				title, err := fetcher.FetchTitle(enrichCtx, url)
 				if err != nil {
 					if isContextError(err) {
-						recordTitleEnrichmentError(&mu, &firstCancelErr, err)
+						if ctx.Err() != nil {
+							recordTitleEnrichmentError(&mu, &firstParentErr, ctx.Err())
+						}
 					} else {
 						warningsByIndex[idx] = fmt.Sprintf("title fetch failed for %s: %v", url, err)
 					}
@@ -200,16 +204,19 @@ func enrichSnapshotTitles(ctx context.Context, fetcher *TitleFetcher, snapshot S
 	wg.Wait()
 
 	mu.Lock()
-	err := firstCancelErr
+	err := firstParentErr
 	mu.Unlock()
 	if err != nil {
 		return snapshot, nil, err
 	}
-	if enrichCtx.Err() != nil {
-		return snapshot, nil, enrichCtx.Err()
+	if ctx.Err() != nil {
+		return snapshot, nil, ctx.Err()
 	}
 
 	warnings := make([]string, 0)
+	if errors.Is(enrichCtx.Err(), context.DeadlineExceeded) {
+		warnings = append(warnings, fmt.Sprintf("title enrichment timed out for %s; using partial titles", snapshot.Name))
+	}
 	for _, warning := range warningsByIndex {
 		if warning == "" {
 			continue
