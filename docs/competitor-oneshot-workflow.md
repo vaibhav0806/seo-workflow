@@ -39,6 +39,14 @@ export COMPETITOR_REPORT_PATH='competitor-report.json'
 # optional OpenRouter/Kimi topic extraction (primary opportunity flow when set)
 export OPENROUTER_API_KEY='sk-or-...'
 export OPENROUTER_MODEL='moonshotai/kimi-k2'
+
+# optional separate model for generated blog/page drafts
+# examples: qwen/qwen3.6-flash, qwen/qwen3.6-27b, moonshotai/kimi-k2.5
+export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
+
+# optional Notion run summary publishing
+export NOTION_API_KEY='ntn_...'
+export NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 ```
 
 ## 3) Run
@@ -63,5 +71,6 @@ go run ./cmd/worker
   - how to execute
   - impact score (1-100)
 - Optional JSON report file via `COMPETITOR_REPORT_PATH`.
+- Optional compact Notion report page when both `NOTION_API_KEY` and `NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID` are set.
 - Treat the report as a heuristic input, not a source of truth.
 - Prioritize exact URL evidence and ignore low-specificity phrases.

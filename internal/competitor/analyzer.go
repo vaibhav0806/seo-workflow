@@ -178,34 +178,186 @@ func deriveOpportunities(ours SiteSnapshot, competitors []SiteSnapshot) []Opport
 }
 
 func deriveTopicOpportunities(ours SiteSnapshot, topics []TopicSummary) []Opportunity {
+	opportunities, _ := deriveTopicOpportunitiesWithDebug(ours, topics)
+	return opportunities
+}
+
+func deriveTopicOpportunitiesWithDebug(ours SiteSnapshot, topics []TopicSummary) ([]Opportunity, TopicAnalysisDebug) {
 	ourTokens := tokenFrequency(joinEntryTitlesAndURLs(ours.RecentURLs))
 	opportunities := make([]Opportunity, 0)
+	debug := TopicAnalysisDebug{
+		ScoredTopics:  make([]TopicScoringDebug, 0, len(topics)),
+		SkippedTopics: make([]SkippedTopicDebug, 0),
+	}
 
 	for _, topic := range topics {
-		if topic.PageCount < 2 {
-			continue
-		}
+		theme := llmTopicTheme(topic.Name)
 		topicTokens := filteredTokens(topic.Name)
 		matchedTokens, totalTokens := topicCoverage(topicTokens, ourTokens)
-		if themeCoveredByCreateOS(topic.Name, ourTokens) {
+		uncoveredTokens := max(totalTokens-matchedTokens, 0)
+		if topic.PageCount < 2 {
+			debug.SkippedTopics = append(debug.SkippedTopics, skippedTopicDebug(topic, theme, "single-page-topic", matchedTokens, totalTokens, uncoveredTokens))
 			continue
 		}
-		uncoveredTokens := max(totalTokens-matchedTokens, 0)
+		if themeCoveredByCreateOS(topic.Name, ourTokens) {
+			debug.SkippedTopics = append(debug.SkippedTopics, skippedTopicDebug(topic, theme, "covered-by-createos", matchedTokens, totalTokens, uncoveredTokens))
+			continue
+		}
+		effectivePages := supportedPageCount(topic.PageCount, len(topic.EvidenceURLs))
+		evidenceQuality := evidenceQualityForTopic(topic)
+		breakdown := buildScoreBreakdown(theme, effectivePages, uncoveredTokens, totalTokens, evidenceQuality)
+		score := finalTopicScore(theme, len(topic.EvidenceURLs), breakdown)
+
+		debug.ScoredTopics = append(debug.ScoredTopics, TopicScoringDebug{
+			Competitor:           topic.Competitor,
+			Topic:                topic.Name,
+			Theme:                theme,
+			PageCount:            topic.PageCount,
+			EffectivePages:       effectivePages,
+			EvidenceCount:        len(topic.EvidenceURLs),
+			EvidenceQualityScore: evidenceQuality.Score,
+			MatchedTokens:        matchedTokens,
+			TotalTokens:          totalTokens,
+			UncoveredTokens:      uncoveredTokens,
+			ScoreBreakdown:       breakdown,
+			Score:                score,
+		})
 
 		opportunities = append(opportunities, Opportunity{
 			Title:           fmt.Sprintf("CreateOS should cover %q", topic.Name),
 			WhyItMatters:    topic.WhyItMatters,
-			WhatToDo:        fmt.Sprintf("Ship one focused page or article for %s using the competitor evidence as the outline.", topic.Name),
+			WhatToDo:        topicWhatToDo(topic, theme),
 			HowToExecute:    topicExecutionPlan(topic),
-			ImpactScore:     scoreLLMTopicGap(topic.PageCount, uncoveredTokens, totalTokens),
+			ImpactScore:     score,
 			Competitor:      topic.Competitor,
-			Theme:           phraseTheme(topic.Name),
+			Theme:           theme,
 			OpportunityType: "llm-topic-gap",
 			Evidence:        topic.EvidenceURLs,
 		})
 	}
 
-	return opportunities
+	return opportunities, debug
+}
+
+func skippedTopicDebug(topic TopicSummary, theme string, reason string, matchedTokens int, totalTokens int, uncoveredTokens int) SkippedTopicDebug {
+	return SkippedTopicDebug{
+		Competitor:      topic.Competitor,
+		Topic:           topic.Name,
+		Theme:           theme,
+		Reason:          reason,
+		PageCount:       topic.PageCount,
+		EvidenceCount:   len(topic.EvidenceURLs),
+		MatchedTokens:   matchedTokens,
+		TotalTokens:     totalTokens,
+		UncoveredTokens: uncoveredTokens,
+		EvidenceURLs:    limitStrings(topic.EvidenceURLs, 3),
+	}
+}
+
+type EvidenceQuality struct {
+	Score                 int `json:"score"`
+	SpecificEvidenceCount int `json:"specificEvidenceCount"`
+	GenericTitlePenalty   int `json:"genericTitlePenalty"`
+	HomepagePenalty       int `json:"homepagePenalty"`
+	MixedEvidencePenalty  int `json:"mixedEvidencePenalty"`
+	WeakEvidencePenalty   int `json:"weakEvidencePenalty"`
+}
+
+func evidenceQualityForTopic(topic TopicSummary) EvidenceQuality {
+	quality := EvidenceQuality{Score: 45}
+	theme := llmTopicTheme(topic.Name)
+	pageTypes := map[string]struct{}{}
+	for idx, evidenceURL := range topic.EvidenceURLs {
+		title := ""
+		if idx < len(topic.RepresentativeTitles) {
+			title = topic.RepresentativeTitles[idx]
+		}
+		pageType := classifyPageType(topic.Competitor, evidenceURL, title)
+		pageTypes[pageType] = struct{}{}
+		if pageType == "homepage" {
+			quality.HomepagePenalty += 12
+			continue
+		}
+		if isGenericTitle(title) {
+			quality.GenericTitlePenalty += 10
+			continue
+		}
+		quality.SpecificEvidenceCount++
+	}
+	quality.Score += min(quality.SpecificEvidenceCount, 4) * 12
+	if len(pageTypes) > 1 {
+		quality.MixedEvidencePenalty = (len(pageTypes) - 1) * 8
+	}
+	if quality.SpecificEvidenceCount < 2 {
+		quality.WeakEvidencePenalty = 16
+	}
+	if theme == "security" && len(pageTypes) > 1 {
+		quality.MixedEvidencePenalty += 8
+	}
+	quality.Score = clampImpact(quality.Score - quality.GenericTitlePenalty - quality.HomepagePenalty - quality.MixedEvidencePenalty - quality.WeakEvidencePenalty)
+	return quality
+}
+
+func buildScoreBreakdown(theme string, effectivePages int, uncoveredTokens int, totalTokens int, evidenceQuality EvidenceQuality) ScoreBreakdown {
+	gap := scoreLLMTopicGap(effectivePages, uncoveredTokens, totalTokens)
+	return ScoreBreakdown{
+		GapCoverage:     gap,
+		EvidenceQuality: evidenceQuality.Score,
+		ThemePriority:   themePriorityScore(theme),
+		Relevance:       relevanceScore(theme, evidenceQuality),
+	}
+}
+
+func finalTopicScore(theme string, evidenceCount int, breakdown ScoreBreakdown) int {
+	score := (breakdown.GapCoverage*45 + breakdown.EvidenceQuality*35 + breakdown.ThemePriority*15 + breakdown.Relevance*5) / 100
+	if evidenceCount < 2 && score > 84 {
+		score = 84
+	}
+	if evidenceCount <= 2 && score > 92 {
+		score = 92
+	}
+	switch theme {
+	case "general":
+		if score > 82 {
+			score = 82
+		}
+	case "comparison", "usecases":
+		if score > 88 {
+			score = 88
+		}
+	case "integrations":
+		if score > 90 {
+			score = 90
+		}
+	case "vibecoding":
+		if score > 94 {
+			score = 94
+		}
+	}
+	return clampImpact(score)
+}
+
+func themePriorityScore(theme string) int {
+	switch theme {
+	case "agents", "ai", "vibecoding":
+		return 92
+	case "security", "enterprise", "comparison":
+		return 84
+	case "integrations", "usecases":
+		return 78
+	case "templates":
+		return 70
+	default:
+		return 55
+	}
+}
+
+func relevanceScore(theme string, evidenceQuality EvidenceQuality) int {
+	score := evidenceQuality.Score
+	if theme == "usecases" || theme == "comparison" {
+		score -= 8
+	}
+	return clampImpact(score)
 }
 
 func joinEntryTitlesAndURLs(entries []SitemapEntry) string {
@@ -269,12 +421,261 @@ func scoreLLMTopicGap(pageCount int, uncoveredTokens int, totalTokens int) int {
 }
 
 func topicExecutionPlan(topic TopicSummary) []string {
-	slug := strings.ToLower(strings.ReplaceAll(topic.Name, " ", "-"))
-	return []string{
-		fmt.Sprintf("Create `/blogs/%s` or a dedicated landing page with this exact theme.", slug),
-		"Use the representative competitor titles as H2 sections, but write CreateOS-specific examples.",
-		"Link the page from homepage, docs, and relevant case studies, then request indexing.",
+	theme := llmTopicTheme(topic.Name)
+	slug := suggestedSlug(topic.Name, theme)
+	pageType := pageTypeForTheme(theme)
+	title := suggestedTitle(topic.Name, theme, topic.Competitor)
+	evidenceTitle := firstNonEmpty(topic.RepresentativeTitles)
+	if evidenceTitle == "" && len(topic.EvidenceURLs) > 0 {
+		evidenceTitle = topic.EvidenceURLs[0]
 	}
+	return []string{
+		fmt.Sprintf("Create `%s` as a %s titled %q.", slug, pageType, title),
+		fmt.Sprintf("Use competitor evidence like %q to shape H2s, but show CreateOS-specific workflows, screenshots, and outcomes.", evidenceTitle),
+		"Add internal links from the homepage, relevant product/docs pages, and at least two related blog posts before requesting indexing.",
+	}
+}
+
+func topicWhatToDo(topic TopicSummary, theme string) string {
+	return fmt.Sprintf(
+		"Create a %s at `%s` titled %q targeting %s; use %d competitor evidence URLs as the outline, then link it into the relevant CreateOS cluster.",
+		pageTypeForTheme(theme),
+		suggestedSlug(topic.Name, theme),
+		suggestedTitle(topic.Name, theme, topic.Competitor),
+		intentForTheme(theme),
+		len(topic.EvidenceURLs),
+	)
+}
+
+func buildContentRecommendations(opportunities []Opportunity) []ContentRecommendation {
+	recommendations := make([]ContentRecommendation, 0, len(opportunities))
+	for idx, opportunity := range opportunities {
+		topic := opportunityTopicName(opportunity.Title)
+		if topic == "" {
+			topic = opportunity.Title
+		}
+		pageType := pageTypeForTheme(opportunity.Theme)
+		recommendations = append(recommendations, ContentRecommendation{
+			Priority:       idx + 1,
+			Opportunity:    opportunity.Title,
+			Competitor:     opportunity.Competitor,
+			Theme:          opportunity.Theme,
+			PageType:       pageType,
+			SuggestedSlug:  suggestedSlug(topic, opportunity.Theme),
+			SuggestedTitle: suggestedTitle(topic, opportunity.Theme, opportunity.Competitor),
+			TargetIntent:   intentForTheme(opportunity.Theme),
+			ContentAngle:   contentAngleForTheme(topic, opportunity.Theme, opportunity.Competitor),
+			Pillar:         pillarForTheme(opportunity.Theme),
+			ClusterPages:   clusterPagesForOpportunity(topic, opportunity.Theme, opportunity.Competitor),
+			SourceEvidence: limitStrings(opportunity.Evidence, 3),
+		})
+	}
+	return recommendations
+}
+
+func opportunityTopicName(title string) string {
+	start := strings.Index(title, "\"")
+	end := strings.LastIndex(title, "\"")
+	if start >= 0 && end > start {
+		return title[start+1 : end]
+	}
+	return strings.TrimSpace(strings.TrimPrefix(title, "CreateOS should cover "))
+}
+
+func pageTypeForTheme(theme string) string {
+	switch theme {
+	case "comparison":
+		return "comparison page"
+	case "usecases", "vibecoding":
+		return "use-case landing page"
+	case "enterprise":
+		return "solution landing page"
+	case "security":
+		return "trust page"
+	case "integrations":
+		return "integration page"
+	case "agents", "ai":
+		return "pillar guide"
+	default:
+		return "focused SEO page"
+	}
+}
+
+func suggestedSlug(topic string, theme string) string {
+	slug := safeSlug(topic)
+	switch theme {
+	case "comparison":
+		return "/compare/" + slug
+	case "usecases", "vibecoding":
+		return "/use-cases/" + slug
+	case "enterprise", "security":
+		return "/solutions/" + slug
+	case "integrations":
+		return "/integrations/" + slug
+	default:
+		return "/blogs/" + slug
+	}
+}
+
+func suggestedTitle(topic string, theme string, competitor string) string {
+	switch theme {
+	case "comparison":
+		return fmt.Sprintf("%s: CreateOS Comparison Guide", titleFromTopic(topic))
+	case "usecases", "vibecoding":
+		return fmt.Sprintf("%s with CreateOS", titleFromTopic(topic))
+	case "enterprise":
+		return fmt.Sprintf("%s for Teams", titleFromTopic(topic))
+	case "security":
+		return fmt.Sprintf("%s with CreateOS", titleFromTopic(topic))
+	case "integrations":
+		return fmt.Sprintf("%s Integration Workflows", titleFromTopic(topic))
+	default:
+		if competitor != "" && competitor != "market" {
+			return fmt.Sprintf("%s: What CreateOS Can Learn from %s", titleFromTopic(topic), titleWord(competitor))
+		}
+		return titleFromTopic(topic)
+	}
+}
+
+func intentForTheme(theme string) string {
+	switch theme {
+	case "comparison":
+		return "commercial evaluation"
+	case "usecases", "vibecoding":
+		return "persona/use-case evaluation"
+	case "enterprise", "security":
+		return "enterprise trust evaluation"
+	case "integrations":
+		return "implementation intent"
+	case "agents", "ai":
+		return "educational-to-product intent"
+	default:
+		return "topic discovery"
+	}
+}
+
+func contentAngleForTheme(topic string, theme string, competitor string) string {
+	switch theme {
+	case "comparison":
+		return fmt.Sprintf("Capture buyers comparing tools by showing where CreateOS is stronger than %s for %s.", titleWord(competitor), strings.ToLower(topic))
+	case "usecases", "vibecoding":
+		return fmt.Sprintf("Show the exact workflow from idea to shipped result for %s, with CreateOS as the execution layer.", strings.ToLower(topic))
+	case "enterprise":
+		return "Translate competitor enterprise positioning into CreateOS-specific team workflows, governance, security, and deployment proof."
+	case "security":
+		return "Use trust, reliability, and control as the conversion hook, not generic security language."
+	case "integrations":
+		return "Make the integration path concrete with prerequisites, setup steps, screenshots, and expected outcomes."
+	default:
+		return "Turn competitor demand into a CreateOS-specific page with examples, proof, and internal links."
+	}
+}
+
+func pillarForTheme(theme string) string {
+	switch theme {
+	case "comparison":
+		return "AI builder comparisons"
+	case "usecases", "vibecoding":
+		return "AI app-building use cases"
+	case "enterprise":
+		return "Enterprise AI development"
+	case "security":
+		return "Secure AI app development"
+	case "integrations":
+		return "CreateOS integrations"
+	case "agents", "ai":
+		return "AI-native development workflows"
+	default:
+		return "CreateOS product-led SEO"
+	}
+}
+
+func clusterPagesForOpportunity(topic string, theme string, competitor string) []ContentPageRecommendation {
+	baseSlug := safeSlug(topic)
+	switch theme {
+	case "comparison":
+		return []ContentPageRecommendation{
+			{PageType: "comparison page", Slug: fmt.Sprintf("/compare/%s-alternative", competitor), Title: fmt.Sprintf("Best %s Alternative for AI App Builders", titleWord(competitor)), TargetIntent: "commercial evaluation"},
+			{PageType: "listicle", Slug: "/blogs/best-ai-app-builders", Title: "Best AI App Builders for Shipping Real Products", TargetIntent: "commercial research"},
+			{PageType: "comparison page", Slug: "/compare/createos-vs-ai-builders", Title: "CreateOS vs AI App Builders: Which Should You Choose?", TargetIntent: "commercial evaluation"},
+		}
+	case "usecases", "vibecoding":
+		return []ContentPageRecommendation{
+			{PageType: "use-case landing page", Slug: "/use-cases/product-managers", Title: "AI App Builder for Product Managers", TargetIntent: "persona evaluation"},
+			{PageType: "use-case landing page", Slug: "/use-cases/startup-mvp-builder", Title: "AI MVP Builder for Startups", TargetIntent: "use-case evaluation"},
+			{PageType: "guide", Slug: "/blogs/rapid-prototyping-with-ai", Title: "Rapid Prototyping with AI: From Idea to MVP", TargetIntent: "educational-to-product intent"},
+		}
+	case "enterprise":
+		return []ContentPageRecommendation{
+			{PageType: "solution landing page", Slug: "/solutions/enterprise-ai-development", Title: "Enterprise AI Development with CreateOS", TargetIntent: "enterprise evaluation"},
+			{PageType: "trust page", Slug: "/solutions/security-governance", Title: "Security and Governance for AI-Built Apps", TargetIntent: "enterprise trust evaluation"},
+			{PageType: "case-study template", Slug: "/customers/ai-development-teams", Title: "How Teams Ship AI Apps with CreateOS", TargetIntent: "proof evaluation"},
+		}
+	default:
+		return []ContentPageRecommendation{
+			{PageType: pageTypeForTheme(theme), Slug: suggestedSlug(topic, theme), Title: suggestedTitle(topic, theme, competitor), TargetIntent: intentForTheme(theme)},
+			{PageType: "guide", Slug: "/blogs/" + baseSlug + "-guide", Title: guideTitleFromTopic(topic), TargetIntent: "educational intent"},
+			{PageType: "case-study template", Slug: "/customers/" + baseSlug, Title: titleFromTopic(topic) + " Examples", TargetIntent: "proof evaluation"},
+		}
+	}
+}
+
+func guideTitleFromTopic(topic string) string {
+	title := titleFromTopic(topic)
+	normalized := strings.ToLower(strings.TrimSpace(title))
+	if strings.HasSuffix(normalized, " guide") || strings.HasSuffix(normalized, " guides") {
+		return title
+	}
+	return title + " Guide"
+}
+
+func titleFromTopic(topic string) string {
+	words := strings.Fields(strings.ReplaceAll(topic, "&", "and"))
+	for idx, word := range words {
+		words[idx] = titleCaseToken(word)
+	}
+	return strings.Join(words, " ")
+}
+
+func titleCaseToken(token string) string {
+	parts := strings.Split(token, "-")
+	for idx, part := range parts {
+		if part == "" {
+			continue
+		}
+		upper := strings.ToUpper(part)
+		if upper == "AI" || upper == "MVP" || upper == "SEO" || upper == "API" || upper == "LLM" || upper == "MCP" {
+			parts[idx] = upper
+			continue
+		}
+		parts[idx] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, "-")
+}
+
+func firstNonEmpty(values []string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func limitStrings(values []string, limit int) []string {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func safeSlug(raw string) string {
+	tokens := filteredTokens(raw)
+	if len(tokens) == 0 {
+		return "topic"
+	}
+	return strings.Join(tokens, "-")
 }
 
 func buildExecutionPlan(phrase string, competitor string, evidence []string) []string {
@@ -548,6 +949,98 @@ func isJunkPath(competitor string, rawURL string) bool {
 	return false
 }
 
+func isRelevantPromptPage(competitor string, rawURL string, title string, allowMissingTitle bool) bool {
+	if strings.TrimSpace(rawURL) == "" {
+		return false
+	}
+	if !allowMissingTitle && strings.TrimSpace(title) == "" {
+		return false
+	}
+	if isLowValuePromptPath(competitor, rawURL) {
+		return false
+	}
+	if strings.TrimSpace(title) != "" && isLowValuePromptTitle(title) {
+		return false
+	}
+	return true
+}
+
+func isLowValuePromptPath(competitor string, rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	path := strings.ToLower(strings.Trim(parsed.Path, "/"))
+	if path == "" {
+		return false
+	}
+	segments := strings.Split(path, "/")
+	first := segments[0]
+	localeCodes := map[string]struct{}{
+		"pt-br": {}, "pt": {}, "de": {}, "es": {}, "fr": {}, "ja": {}, "ko": {}, "zh": {},
+		"it": {}, "nl": {}, "ru": {}, "tr": {}, "jp": {}, "cn": {}, "tw": {},
+	}
+	if _, isLocale := localeCodes[first]; isLocale {
+		return true
+	}
+	lowValueFirstSegments := map[string]struct{}{
+		"abuse": {}, "affiliates": {}, "brand": {}, "careers": {}, "events": {}, "gallery": {},
+		"jobs": {}, "legal": {}, "privacy": {}, "signin": {}, "sign-in": {}, "signup": {},
+		"support": {}, "terms": {}, "faq": {}, "download": {}, "links": {}, "subprocessors": {},
+		"birthday": {}, "certifications": {}, "discover": {}, "blog": {}, "blogs": {}, "kb": {},
+	}
+	if _, lowValue := lowValueFirstSegments[first]; lowValue && len(segments) == 1 {
+		return true
+	}
+	alwaysLowValueFirstSegments := map[string]struct{}{
+		"abuse": {}, "affiliates": {}, "brand": {}, "careers": {}, "events": {}, "gallery": {},
+		"jobs": {}, "legal": {}, "privacy": {}, "signin": {}, "sign-in": {}, "signup": {},
+		"support": {}, "terms": {}, "faq": {}, "download": {}, "links": {}, "subprocessors": {},
+		"birthday": {}, "certifications": {}, "discover": {},
+	}
+	if _, lowValue := alwaysLowValueFirstSegments[first]; lowValue {
+		return true
+	}
+	lowValuePathFragments := []string{
+		"cookie", "terms", "privacy", "data-processing", "definitions", "legal-change",
+		"code-of-conduct", "do-not-sell", "domain-registration", "dora-addendum",
+		"desktop-app-terms", "/errors", "/category/",
+	}
+	for _, fragment := range lowValuePathFragments {
+		if strings.Contains(path, fragment) {
+			return true
+		}
+	}
+	if strings.Contains(path, "/status") || strings.HasSuffix(path, "/status") {
+		return true
+	}
+	if strings.HasPrefix(path, "edu/") {
+		return true
+	}
+	if competitor == "replit" && (strings.Contains(path, "/admin") || strings.Contains(path, "/sign-in")) {
+		return true
+	}
+	return false
+}
+
+func isLowValuePromptTitle(title string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(title))
+	if normalized == "" {
+		return false
+	}
+	lowValueFragments := []string{
+		"careers", "press enquiries", "report abuse", "access private deployment", "dashboard",
+		"cookie policy", "terms", "privacy", "data processing", "definitions", "code of conduct",
+		"subprocessors", "certification", "turns 10",
+	}
+	for _, fragment := range lowValueFragments {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
 func phraseSpecificity(phrase string) int {
 	score := 0
 	for _, token := range strings.Fields(phrase) {
@@ -587,6 +1080,32 @@ func phraseTheme(phrase string) string {
 		return "ai"
 	default:
 		return "general"
+	}
+}
+
+func llmTopicTheme(topicName string) string {
+	raw := strings.ToLower(topicName)
+	switch {
+	case strings.Contains(raw, "comparison") || strings.Contains(raw, "benchmark") || strings.Contains(raw, "alternative"):
+		return "comparison"
+	case strings.Contains(raw, "use case") || strings.Contains(raw, "industry-specific") || strings.Contains(raw, "persona"):
+		return "usecases"
+	case strings.Contains(raw, "enterprise"):
+		return "enterprise"
+	case strings.Contains(raw, "security") || strings.Contains(raw, "integrity") || strings.Contains(raw, "vulnerability"):
+		return "security"
+	case strings.Contains(raw, "agentic") || strings.Contains(raw, "agent workflow") || strings.Contains(raw, "coding tools"):
+		return "agents"
+	case strings.Contains(raw, "prototype") || strings.Contains(raw, "prototyping") || strings.Contains(raw, "mvp") || strings.Contains(raw, "app building") || strings.Contains(raw, "website building") || strings.Contains(raw, "no-code") || strings.Contains(raw, "low-code"):
+		return "vibecoding"
+	case strings.Contains(raw, "partner") || strings.Contains(raw, "ecosystem") || strings.Contains(raw, "connect") || strings.Contains(raw, "integration"):
+		return "integrations"
+	case strings.Contains(raw, "enterprise") || strings.Contains(raw, "pricing"):
+		return "pricing"
+	case strings.Contains(raw, "ai") || strings.Contains(raw, "llm") || strings.Contains(raw, "model"):
+		return "ai"
+	default:
+		return phraseTheme(topicName)
 	}
 }
 

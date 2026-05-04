@@ -44,11 +44,14 @@ type Config struct {
 	RowLimit          int
 	HTTPTimeoutSecs   int
 
-	CompetitorReportPath string
-	CompetitorWindowDays int
-	OurSitemapURL        string
-	OpenRouterAPIKey     string
-	OpenRouterModel      string
+	CompetitorReportPath               string
+	CompetitorWindowDays               int
+	OurSitemapURL                      string
+	OpenRouterAPIKey                   string
+	OpenRouterModel                    string
+	OpenRouterDraftModel               string
+	NotionAPIKey                       string
+	NotionCompetitorReportParentPageID string
 }
 
 func Load() (*Config, error) {
@@ -173,9 +176,12 @@ func Load() (*Config, error) {
 		cfg.OurSitemapURL = strings.TrimSpace(os.Getenv("OUR_SITEMAP_URL"))
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
 		cfg.OpenRouterAPIKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+		cfg.NotionAPIKey = strings.TrimSpace(os.Getenv("NOTION_API_KEY"))
+		cfg.NotionCompetitorReportParentPageID = strings.TrimSpace(os.Getenv("NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID"))
 		if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
 			cfg.OpenRouterModel = model
 		}
+		cfg.OpenRouterDraftModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_MODEL"))
 		windowDays, err := parsePositiveIntEnv("COMPETITOR_WINDOW_DAYS", defaultWindowDays)
 		if err != nil {
 			return nil, err

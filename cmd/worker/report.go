@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/nodeops/seo-workflow/internal/competitor"
 	"github.com/nodeops/seo-workflow/internal/config"
+	"github.com/nodeops/seo-workflow/internal/notion"
 	"github.com/nodeops/seo-workflow/internal/scan"
 )
 
@@ -146,6 +148,29 @@ func logCompetitorSummary(summary competitor.Summary) {
 			topThemeCounts(competitorSnapshot.ThemeCounts, 5),
 		)
 	}
+	for _, debug := range summary.Debug.TitleEnrichment {
+		log.Printf(
+			"title_debug site=%q recent=%d attempted=%d titled=%d empty=%d skipped_filter=%d limit=%d reason=%q",
+			debug.Site,
+			debug.RecentURLCount,
+			debug.Attempted,
+			debug.Titled,
+			debug.EmptyTitle,
+			debug.SkippedByFilter,
+			debug.EnrichmentLimit,
+			debug.EnrichmentReason,
+		)
+	}
+	for _, debug := range summary.Debug.TopicPrompt {
+		log.Printf(
+			"prompt_debug competitor=%q pages_sent=%d skipped_no_title=%d skipped_low_value=%d sample_urls=%v",
+			debug.Competitor,
+			debug.PagesSent,
+			debug.SkippedNoTitle,
+			debug.SkippedLowValue,
+			debug.SampleURLs,
+		)
+	}
 	for idx, topic := range summary.ExtractedTopics {
 		log.Printf(
 			"topic_%d competitor=%q name=%q pages=%d why=%q evidence=%v",
@@ -155,6 +180,38 @@ func logCompetitorSummary(summary competitor.Summary) {
 			topic.PageCount,
 			topic.WhyItMatters,
 			topic.EvidenceURLs,
+		)
+	}
+	for _, debug := range summary.Debug.TopicScoring {
+		log.Printf(
+			"score_debug competitor=%q topic=%q theme=%q page_count=%d effective_pages=%d evidence=%d evidence_quality=%d matched_tokens=%d total_tokens=%d uncovered_tokens=%d breakdown=%+v score=%d",
+			debug.Competitor,
+			debug.Topic,
+			debug.Theme,
+			debug.PageCount,
+			debug.EffectivePages,
+			debug.EvidenceCount,
+			debug.EvidenceQualityScore,
+			debug.MatchedTokens,
+			debug.TotalTokens,
+			debug.UncoveredTokens,
+			debug.ScoreBreakdown,
+			debug.Score,
+		)
+	}
+	for _, debug := range summary.Debug.SkippedTopics {
+		log.Printf(
+			"skipped_topic_debug competitor=%q topic=%q theme=%q reason=%q page_count=%d evidence=%d matched_tokens=%d total_tokens=%d uncovered_tokens=%d evidence_urls=%v",
+			debug.Competitor,
+			debug.Topic,
+			debug.Theme,
+			debug.Reason,
+			debug.PageCount,
+			debug.EvidenceCount,
+			debug.MatchedTokens,
+			debug.TotalTokens,
+			debug.UncoveredTokens,
+			debug.EvidenceURLs,
 		)
 	}
 
@@ -189,6 +246,27 @@ func writeCompetitorReport(cfg *config.Config, summary competitor.Summary) error
 		return fmt.Errorf("write competitor report to %q: %w", path, err)
 	}
 	log.Printf("competitor report written: path=%q", path)
+	return nil
+}
+
+func writeCompetitorNotionReport(ctx context.Context, cfg *config.Config, summary competitor.Summary) error {
+	apiKey := strings.TrimSpace(cfg.NotionAPIKey)
+	parentPageID := strings.TrimSpace(cfg.NotionCompetitorReportParentPageID)
+	if apiKey == "" && parentPageID == "" {
+		log.Printf("competitor notion report skipped: notion env not configured")
+		return nil
+	}
+	if apiKey == "" || parentPageID == "" {
+		return fmt.Errorf("notion report requires both NOTION_API_KEY and NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID")
+	}
+
+	report := competitor.BuildReportSummary(summary, 5)
+	client := notion.NewClient(apiKey)
+	result, err := client.CreateCompetitorReportPage(ctx, parentPageID, report)
+	if err != nil {
+		return err
+	}
+	log.Printf("competitor notion report written: url=%q", result.URL)
 	return nil
 }
 

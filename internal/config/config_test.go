@@ -178,9 +178,12 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	setCompetitorEnv(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 	t.Setenv("OPENROUTER_MODEL", "moonshotai/kimi-k2")
+	t.Setenv("OPENROUTER_DRAFT_MODEL", "qwen/qwen3.6-flash")
 	t.Setenv("COMPETITOR_REPORT_PATH", "competitor-report.json")
 	t.Setenv("COMPETITOR_WINDOW_DAYS", "14")
 	t.Setenv("COMPETITOR_HTTP_TIMEOUT_SEC", "45")
+	t.Setenv("NOTION_API_KEY", "ntn_test")
+	t.Setenv("NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID", "1234567890abcdef1234567890abcdef")
 
 	cfg, err := Load()
 
@@ -188,9 +191,12 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.NotNil(t, cfg)
 	require.Equal(t, "sk-or-test", cfg.OpenRouterAPIKey)
 	require.Equal(t, "moonshotai/kimi-k2", cfg.OpenRouterModel)
+	require.Equal(t, "qwen/qwen3.6-flash", cfg.OpenRouterDraftModel)
 	require.Equal(t, "competitor-report.json", cfg.CompetitorReportPath)
 	require.Equal(t, 14, cfg.CompetitorWindowDays)
 	require.Equal(t, 45, cfg.HTTPTimeoutSecs)
+	require.Equal(t, "ntn_test", cfg.NotionAPIKey)
+	require.Equal(t, "1234567890abcdef1234567890abcdef", cfg.NotionCompetitorReportParentPageID)
 }
 
 func TestLoadCompetitorModeMissingRequiredEnv(t *testing.T) {
