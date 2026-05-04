@@ -58,6 +58,9 @@ if [[ "$WORKER_MODE" == "oneshot-competitor" ]]; then
   prompt_default COMPETITOR_REPORT_PATH "Competitor report path" "competitor-report.json"
   prompt_secret OPENROUTER_API_KEY "OpenRouter API key (optional; press Enter to leave empty)"
   prompt_default OPENROUTER_MODEL "OpenRouter model" "moonshotai/kimi-k2"
+  prompt_default OPENROUTER_DRAFT_MODEL "OpenRouter draft-writing model (optional)" "$OPENROUTER_MODEL"
+  prompt_secret NOTION_API_KEY "Notion API key (optional; press Enter to leave empty)"
+  prompt_default NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID "Notion report parent page ID (optional)" ""
 
   cat > "$ENV_FILE" <<ENV
 WORKER_MODE=$WORKER_MODE
@@ -67,6 +70,9 @@ COMPETITOR_HTTP_TIMEOUT_SEC=$COMPETITOR_HTTP_TIMEOUT_SEC
 COMPETITOR_REPORT_PATH=$COMPETITOR_REPORT_PATH
 OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
 OPENROUTER_MODEL=$OPENROUTER_MODEL
+OPENROUTER_DRAFT_MODEL=${OPENROUTER_DRAFT_MODEL:-}
+NOTION_API_KEY=${NOTION_API_KEY:-}
+NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID=${NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID:-}
 ENV
 else
   prompt_default SCAN_PROPERTY "GSC property (e.g. sc-domain:example.com)" "sc-domain:example.com"

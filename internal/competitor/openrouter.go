@@ -12,6 +12,7 @@ import (
 )
 
 const openRouterEndpoint = "https://openrouter.ai/api/v1/chat/completions"
+const topicPromptPayloadByteCap = 120_000
 
 type openRouterRequest struct {
 	Model       string              `json:"model"`
@@ -34,6 +35,27 @@ type openRouterResponse struct {
 
 type llmOpportunityOutput struct {
 	Opportunities []Opportunity `json:"opportunities"`
+}
+
+type llmTopicOutput struct {
+	Topics []TopicSummary `json:"topics"`
+}
+
+type llmBlogDraftOutput struct {
+	Drafts []BlogDraft `json:"drafts"`
+}
+
+type topicPromptPage struct {
+	Title          string   `json:"title"`
+	URL            string   `json:"url"`
+	PageType       string   `json:"pageType,omitempty"`
+	RelevanceScore int      `json:"relevanceScore,omitempty"`
+	WhySelected    []string `json:"whySelected,omitempty"`
+}
+
+type topicPromptCompetitor struct {
+	Competitor string            `json:"competitor"`
+	Pages      []topicPromptPage `json:"pages"`
 }
 
 func refineWithOpenRouter(
@@ -144,4 +166,429 @@ func extractJSONObject(raw string) string {
 		return ""
 	}
 	return strings.TrimSpace(raw[start : end+1])
+}
+
+func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, competitors []SiteSnapshot) ([]TopicSummary, []TopicPromptDebug, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, nil, nil
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "moonshotai/kimi-k2"
+	}
+
+	input, promptDebug := buildTopicPromptInputWithDebug(competitors, 40)
+	if len(input) == 0 {
+		return nil, promptDebug, nil
+	}
+	input, inputBytes, err := trimTopicPromptInputToBytes(input, topicPromptPayloadByteCap)
+	if err != nil {
+		return nil, promptDebug, fmt.Errorf("trim topic prompt input: %w", err)
+	}
+	if len(input) == 0 {
+		return nil, promptDebug, nil
+	}
+	systemPrompt := "You are an SEO strategist. Return only strict JSON with key topics[]."
+	userPrompt := "Analyze competitor page titles and URLs, then return 5-8 concrete themes per competitor. Ignore locale/translation, faq, careers/jobs, gallery, legal/privacy/terms, and company/about/team pages. Each theme item must include competitor, name, pageCount, representativeTitles, evidenceUrls, whyItMatters. JSON only. Data: " + string(inputBytes)
+
+	requestBody := openRouterRequest{
+		Model:       model,
+		Temperature: 0.2,
+		Messages: []openRouterMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	payload, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, promptDebug, fmt.Errorf("marshal openrouter topic request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterEndpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, promptDebug, fmt.Errorf("build openrouter topic request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, promptDebug, fmt.Errorf("execute openrouter topic request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, promptDebug, fmt.Errorf("openrouter topic status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var parsed openRouterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, promptDebug, fmt.Errorf("decode openrouter topic response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return nil, promptDebug, fmt.Errorf("openrouter topic response returned no choices")
+	}
+
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	if content == "" {
+		return nil, promptDebug, fmt.Errorf("openrouter topic response returned empty content")
+	}
+
+	clean := extractJSONObject(content)
+	if clean == "" {
+		return nil, promptDebug, fmt.Errorf("openrouter topic response had no json object")
+	}
+
+	var out llmTopicOutput
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
+		return nil, promptDebug, fmt.Errorf("unmarshal openrouter topic json: %w", err)
+	}
+
+	return normalizeTopicSummaries(out.Topics), promptDebug, nil
+}
+
+func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model string, recommendations []ContentRecommendation, limit int, createOSContext string) ([]BlogDraft, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" || limit <= 0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "moonshotai/kimi-k2"
+	}
+	input := draftPromptInput(recommendations, limit)
+	if len(input) == 0 {
+		return nil, nil
+	}
+	inputBytes, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("marshal blog draft prompt input: %w", err)
+	}
+
+	systemPrompt := "You are a product-led SEO writer for CreateOS. Return only strict JSON with key drafts[]."
+	userPrompt := blogDraftUserPrompt(inputBytes, createOSContext)
+	requestBody := openRouterRequest{
+		Model:       model,
+		Temperature: 0.35,
+		Messages: []openRouterMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	payload, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal openrouter blog draft request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterEndpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build openrouter blog draft request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute openrouter blog draft request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("openrouter blog draft status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var parsed openRouterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode openrouter blog draft response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return nil, fmt.Errorf("openrouter blog draft response returned no choices")
+	}
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	if content == "" {
+		return nil, fmt.Errorf("openrouter blog draft response returned empty content")
+	}
+	clean := extractJSONObject(content)
+	if clean == "" {
+		return nil, fmt.Errorf("openrouter blog draft response had no json object")
+	}
+
+	var out llmBlogDraftOutput
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
+		return nil, fmt.Errorf("unmarshal openrouter blog draft json: %w", err)
+	}
+	return normalizeBlogDrafts(out.Drafts, limit), nil
+}
+
+func blogDraftUserPrompt(inputBytes []byte, createOSContext string) string {
+	contextInstruction := ""
+	if strings.TrimSpace(createOSContext) != "" {
+		contextInstruction = " Use the CreateOS context as positioning guidance, not as text to copy verbatim. Do not invent claims beyond the CreateOS context and recommendation input. CreateOS context: " + strings.TrimSpace(createOSContext)
+	}
+	return "Create publishable first-draft content for each recommendation. Do not invent customers, metrics, pricing, guarantees, or product capabilities not present in the input. Each draft must include route, title, metaDescription, bodyMarkdown, cta, status. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list per draft. Each H2 section should have 2-4 paragraphs. Avoid placeholder points, generic listicle filler, and implementation claims that are not in the input. Include an H1, intro, 4-6 H2 sections, and a closing CTA." + contextInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
+}
+
+type blogDraftPromptItem struct {
+	Route          string   `json:"route"`
+	Title          string   `json:"title"`
+	PageType       string   `json:"pageType"`
+	TargetIntent   string   `json:"targetIntent"`
+	Pillar         string   `json:"pillar"`
+	ContentAngle   string   `json:"contentAngle"`
+	SourceEvidence []string `json:"sourceEvidence,omitempty"`
+}
+
+func draftPromptInput(recommendations []ContentRecommendation, limit int) []blogDraftPromptItem {
+	items := make([]blogDraftPromptItem, 0, min(len(recommendations), limit))
+	for _, recommendation := range recommendations {
+		if len(items) == limit {
+			break
+		}
+		route := strings.TrimSpace(recommendation.SuggestedSlug)
+		title := strings.TrimSpace(recommendation.SuggestedTitle)
+		if route == "" || title == "" {
+			continue
+		}
+		items = append(items, blogDraftPromptItem{
+			Route:          route,
+			Title:          title,
+			PageType:       recommendation.PageType,
+			TargetIntent:   recommendation.TargetIntent,
+			Pillar:         recommendation.Pillar,
+			ContentAngle:   recommendation.ContentAngle,
+			SourceEvidence: limitStrings(recommendation.SourceEvidence, 3),
+		})
+	}
+	return items
+}
+
+func normalizeBlogDrafts(drafts []BlogDraft, limit int) []BlogDraft {
+	out := make([]BlogDraft, 0, min(len(drafts), limit))
+	for _, draft := range drafts {
+		if len(out) == limit {
+			break
+		}
+		route := strings.TrimSpace(draft.Route)
+		title := strings.TrimSpace(draft.Title)
+		body := strings.TrimSpace(draft.BodyMarkdown)
+		if route == "" || title == "" || body == "" {
+			continue
+		}
+		status := strings.TrimSpace(draft.Status)
+		if status == "" {
+			status = "ai-generated-draft"
+		}
+		out = append(out, BlogDraft{
+			Route:           route,
+			Title:           title,
+			MetaDescription: strings.TrimSpace(draft.MetaDescription),
+			BodyMarkdown:    body,
+			CTA:             strings.TrimSpace(draft.CTA),
+			Status:          status,
+		})
+	}
+	return out
+}
+
+func attachDraftsToContentRecommendations(recommendations []ContentRecommendation, drafts []BlogDraft, limit int) []ContentRecommendation {
+	out := make([]ContentRecommendation, len(recommendations))
+	copy(out, recommendations)
+	if limit <= 0 {
+		return out
+	}
+	draftsByRoute := map[string]BlogDraft{}
+	for _, draft := range normalizeBlogDrafts(drafts, limit) {
+		draftsByRoute[draft.Route] = draft
+	}
+	for idx := range out {
+		if idx >= limit {
+			break
+		}
+		draft, ok := draftsByRoute[out[idx].SuggestedSlug]
+		if !ok {
+			continue
+		}
+		out[idx].Draft = &draft
+	}
+	return out
+}
+
+func buildTopicPromptInput(competitors []SiteSnapshot, limit int) []topicPromptCompetitor {
+	input, _ := buildTopicPromptInputWithDebug(competitors, limit)
+	return input
+}
+
+func buildTopicPromptInputWithDebug(competitors []SiteSnapshot, limit int) ([]topicPromptCompetitor, []TopicPromptDebug) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	result := make([]topicPromptCompetitor, 0, len(competitors))
+	debug := make([]TopicPromptDebug, 0, len(competitors))
+	for _, competitor := range competitors {
+		if strings.TrimSpace(competitor.Name) == "" || competitor.Error != "" {
+			continue
+		}
+		entryDebug := TopicPromptDebug{Competitor: strings.TrimSpace(competitor.Name)}
+		pages := make([]topicPromptPage, 0, limit)
+		candidates := buildPageCandidates(competitor)
+		for _, candidate := range candidates {
+			if len(pages) >= limit {
+				break
+			}
+			if strings.TrimSpace(candidate.URL) == "" {
+				entryDebug.SkippedLowValue++
+				entryDebug.RejectedPages = appendDebugCandidate(entryDebug.RejectedPages, candidate)
+				continue
+			}
+			if candidate.RelevanceScore < promptCandidateThreshold || len(candidate.NegativeSignals) > 0 && candidate.RelevanceScore < 70 {
+				entryDebug.SkippedLowValue++
+				entryDebug.RejectedPages = appendDebugCandidate(entryDebug.RejectedPages, candidate)
+				continue
+			}
+			if strings.TrimSpace(candidate.Title) == "" {
+				entryDebug.SkippedNoTitle++
+				entryDebug.RejectedPages = appendDebugCandidate(entryDebug.RejectedPages, candidate)
+				continue
+			}
+			pages = append(pages, topicPromptPage{
+				Title:          candidate.Title,
+				URL:            candidate.URL,
+				PageType:       candidate.PageType,
+				RelevanceScore: candidate.RelevanceScore,
+				WhySelected:    candidate.WhySelected,
+			})
+			entryDebug.SelectedPages = appendDebugCandidate(entryDebug.SelectedPages, candidate)
+			if len(entryDebug.SampleURLs) < 5 {
+				entryDebug.SampleURLs = append(entryDebug.SampleURLs, candidate.URL)
+			}
+		}
+		entryDebug.PagesSent = len(pages)
+		debug = append(debug, entryDebug)
+		if len(pages) == 0 {
+			continue
+		}
+		result = append(result, topicPromptCompetitor{
+			Competitor: strings.TrimSpace(competitor.Name),
+			Pages:      pages,
+		})
+	}
+	return result, debug
+}
+
+func appendDebugCandidate(candidates []PageCandidate, candidate PageCandidate) []PageCandidate {
+	if len(candidates) >= 20 {
+		return candidates
+	}
+	return append(candidates, candidate)
+}
+
+func normalizeTopicSummaries(topics []TopicSummary) []TopicSummary {
+	normalized := make([]TopicSummary, 0, len(topics))
+	for _, topic := range topics {
+		competitor := strings.TrimSpace(topic.Competitor)
+		name := strings.TrimSpace(topic.Name)
+		if competitor == "" || name == "" {
+			continue
+		}
+
+		repTitles := make([]string, 0, 5)
+		for _, title := range topic.RepresentativeTitles {
+			title = strings.TrimSpace(title)
+			if title == "" {
+				continue
+			}
+			repTitles = append(repTitles, title)
+			if len(repTitles) == 5 {
+				break
+			}
+		}
+
+		evidenceURLs := make([]string, 0, 5)
+		for _, evidenceURL := range topic.EvidenceURLs {
+			evidenceURL = strings.TrimSpace(evidenceURL)
+			if evidenceURL == "" {
+				continue
+			}
+			evidenceURLs = append(evidenceURLs, evidenceURL)
+			if len(evidenceURLs) == 5 {
+				break
+			}
+		}
+
+		normalized = append(normalized, TopicSummary{
+			Competitor:           competitor,
+			Name:                 name,
+			PageCount:            supportedPageCount(topic.PageCount, len(evidenceURLs)),
+			RepresentativeTitles: repTitles,
+			EvidenceURLs:         evidenceURLs,
+			WhyItMatters:         strings.TrimSpace(topic.WhyItMatters),
+		})
+	}
+	return normalized
+}
+
+func supportedPageCount(pageCount int, evidenceCount int) int {
+	if pageCount < 0 {
+		return 0
+	}
+	if evidenceCount > 0 && pageCount > evidenceCount {
+		return evidenceCount
+	}
+	return pageCount
+}
+
+func trimTopicPromptInputToBytes(input []topicPromptCompetitor, capBytes int) ([]topicPromptCompetitor, []byte, error) {
+	if capBytes <= 0 {
+		return nil, nil, nil
+	}
+	trimmed := copyTopicPromptInput(input)
+	inputBytes, err := json.Marshal(trimmed)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(inputBytes) <= capBytes {
+		return trimmed, inputBytes, nil
+	}
+
+	for len(trimmed) > 0 {
+		pageRemoved := false
+		for idx := len(trimmed) - 1; idx >= 0; idx-- {
+			if len(trimmed[idx].Pages) == 0 {
+				continue
+			}
+			trimmed[idx].Pages = trimmed[idx].Pages[:len(trimmed[idx].Pages)-1]
+			pageRemoved = true
+			if len(trimmed[idx].Pages) == 0 {
+				trimmed = append(trimmed[:idx], trimmed[idx+1:]...)
+			}
+			break
+		}
+		if !pageRemoved {
+			return nil, nil, nil
+		}
+
+		inputBytes, err = json.Marshal(trimmed)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(inputBytes) <= capBytes {
+			return trimmed, inputBytes, nil
+		}
+	}
+
+	return nil, nil, nil
+}
+
+func copyTopicPromptInput(input []topicPromptCompetitor) []topicPromptCompetitor {
+	out := make([]topicPromptCompetitor, 0, len(input))
+	for _, competitor := range input {
+		pages := make([]topicPromptPage, len(competitor.Pages))
+		copy(pages, competitor.Pages)
+		out = append(out, topicPromptCompetitor{
+			Competitor: competitor.Competitor,
+			Pages:      pages,
+		})
+	}
+	return out
 }
