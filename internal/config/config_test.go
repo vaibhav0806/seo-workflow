@@ -172,6 +172,8 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, 30, cfg.CompetitorWindowDays)
 	require.Equal(t, 30, cfg.HTTPTimeoutSecs)
 	require.Equal(t, "moonshotai/kimi-k2", cfg.OpenRouterModel)
+	require.Equal(t, 240, cfg.OpenRouterDraftTimeoutSecs)
+	require.Equal(t, 1, cfg.CompetitorContentDraftLimit)
 }
 
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
@@ -182,6 +184,8 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("COMPETITOR_REPORT_PATH", "competitor-report.json")
 	t.Setenv("COMPETITOR_WINDOW_DAYS", "14")
 	t.Setenv("COMPETITOR_HTTP_TIMEOUT_SEC", "45")
+	t.Setenv("OPENROUTER_DRAFT_TIMEOUT_SEC", "360")
+	t.Setenv("COMPETITOR_CONTENT_DRAFT_LIMIT", "1")
 	t.Setenv("NOTION_API_KEY", "ntn_test")
 	t.Setenv("NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID", "1234567890abcdef1234567890abcdef")
 
@@ -195,6 +199,8 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "competitor-report.json", cfg.CompetitorReportPath)
 	require.Equal(t, 14, cfg.CompetitorWindowDays)
 	require.Equal(t, 45, cfg.HTTPTimeoutSecs)
+	require.Equal(t, 360, cfg.OpenRouterDraftTimeoutSecs)
+	require.Equal(t, 1, cfg.CompetitorContentDraftLimit)
 	require.Equal(t, "ntn_test", cfg.NotionAPIKey)
 	require.Equal(t, "1234567890abcdef1234567890abcdef", cfg.NotionCompetitorReportParentPageID)
 }

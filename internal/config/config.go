@@ -10,14 +10,16 @@ import (
 
 const defaultScanQPM = 600
 const (
-	defaultWorkerMode      = "standby"
-	defaultDryRun          = true
-	defaultLookbackDays    = 7
-	defaultRowLimit        = 1000
-	defaultHTTPTimeoutSecs = 30
-	defaultSitemapPath     = "public/sitemap.xml"
-	defaultCompetitorModel = "moonshotai/kimi-k2"
-	defaultWindowDays      = 30
+	defaultWorkerMode             = "standby"
+	defaultDryRun                 = true
+	defaultLookbackDays           = 7
+	defaultRowLimit               = 1000
+	defaultHTTPTimeoutSecs        = 30
+	defaultSitemapPath            = "public/sitemap.xml"
+	defaultCompetitorModel        = "moonshotai/kimi-k2"
+	defaultWindowDays             = 30
+	defaultCompetitorDraftLimit   = 1
+	defaultOpenRouterDraftTimeout = 240
 )
 
 type Config struct {
@@ -50,6 +52,8 @@ type Config struct {
 	OpenRouterAPIKey                   string
 	OpenRouterModel                    string
 	OpenRouterDraftModel               string
+	OpenRouterDraftTimeoutSecs         int
+	CompetitorContentDraftLimit        int
 	NotionAPIKey                       string
 	NotionCompetitorReportParentPageID string
 }
@@ -61,21 +65,23 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		WorkerMode:           workerMode,
-		DatabaseURL:          strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RedisURL:             strings.TrimSpace(os.Getenv("REDIS_URL")),
-		GSCClientID:          strings.TrimSpace(os.Getenv("GSC_CLIENT_ID")),
-		GSCClientSecret:      strings.TrimSpace(os.Getenv("GSC_CLIENT_SECRET")),
-		GitHubAppID:          strings.TrimSpace(os.Getenv("GITHUB_APP_ID")),
-		GitHubInstallationID: strings.TrimSpace(os.Getenv("GITHUB_INSTALLATION_ID")),
-		ScanQPM:              defaultScanQPM,
-		GitHubSitemapPath:    defaultSitemapPath,
-		DryRun:               defaultDryRun,
-		LookbackDays:         defaultLookbackDays,
-		RowLimit:             defaultRowLimit,
-		HTTPTimeoutSecs:      defaultHTTPTimeoutSecs,
-		OpenRouterModel:      defaultCompetitorModel,
-		CompetitorWindowDays: defaultWindowDays,
+		WorkerMode:                  workerMode,
+		DatabaseURL:                 strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		RedisURL:                    strings.TrimSpace(os.Getenv("REDIS_URL")),
+		GSCClientID:                 strings.TrimSpace(os.Getenv("GSC_CLIENT_ID")),
+		GSCClientSecret:             strings.TrimSpace(os.Getenv("GSC_CLIENT_SECRET")),
+		GitHubAppID:                 strings.TrimSpace(os.Getenv("GITHUB_APP_ID")),
+		GitHubInstallationID:        strings.TrimSpace(os.Getenv("GITHUB_INSTALLATION_ID")),
+		ScanQPM:                     defaultScanQPM,
+		GitHubSitemapPath:           defaultSitemapPath,
+		DryRun:                      defaultDryRun,
+		LookbackDays:                defaultLookbackDays,
+		RowLimit:                    defaultRowLimit,
+		HTTPTimeoutSecs:             defaultHTTPTimeoutSecs,
+		OpenRouterModel:             defaultCompetitorModel,
+		CompetitorWindowDays:        defaultWindowDays,
+		OpenRouterDraftTimeoutSecs:  defaultOpenRouterDraftTimeout,
+		CompetitorContentDraftLimit: defaultCompetitorDraftLimit,
 	}
 
 	if scanQPMRaw := strings.TrimSpace(os.Getenv("SCAN_QPM")); scanQPMRaw != "" {
@@ -182,6 +188,16 @@ func Load() (*Config, error) {
 			cfg.OpenRouterModel = model
 		}
 		cfg.OpenRouterDraftModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_MODEL"))
+		draftTimeoutSecs, err := parsePositiveIntEnv("OPENROUTER_DRAFT_TIMEOUT_SEC", defaultOpenRouterDraftTimeout)
+		if err != nil {
+			return nil, err
+		}
+		cfg.OpenRouterDraftTimeoutSecs = draftTimeoutSecs
+		draftLimit, err := parsePositiveIntEnv("COMPETITOR_CONTENT_DRAFT_LIMIT", defaultCompetitorDraftLimit)
+		if err != nil {
+			return nil, err
+		}
+		cfg.CompetitorContentDraftLimit = draftLimit
 		windowDays, err := parsePositiveIntEnv("COMPETITOR_WINDOW_DAYS", defaultWindowDays)
 		if err != nil {
 			return nil, err
