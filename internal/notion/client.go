@@ -736,7 +736,7 @@ func markdownInlineRichText(content string) []richText {
 		if strings.TrimSpace(label) == "" || strings.TrimSpace(url) == "" {
 			out = append(out, textRichText(remaining[:urlEnd+1]))
 		} else {
-			out = append(out, linkRichText(label, url))
+			out = append(out, linkRichText(label, normalizeMarkdownLinkURL(url)))
 		}
 		remaining = remaining[urlEnd+1:]
 	}
@@ -747,6 +747,14 @@ func markdownInlineRichText(content string) []richText {
 		return []richText{textRichText(content)}
 	}
 	return out
+}
+
+func normalizeMarkdownLinkURL(raw string) string {
+	url := strings.TrimSpace(raw)
+	if strings.HasPrefix(url, "/") && !strings.HasPrefix(url, "//") {
+		return "https://createos.sh" + url
+	}
+	return url
 }
 
 func titleWord(raw string) string {

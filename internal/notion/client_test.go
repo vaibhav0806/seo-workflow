@@ -175,6 +175,17 @@ func TestMarkdownToBlocksRendersMarkdownLinksAsNotionLinks(t *testing.T) {
 	require.Equal(t, " for related execution guides.", blocks[0].Paragraph.RichText[2].Text.Content)
 }
 
+func TestMarkdownToBlocksConvertsRelativeCreateOSLinksToAbsoluteNotionLinks(t *testing.T) {
+	blocks := markdownToBlocks("Read the [CreateOS blog](/blogs/context-switching-cost-developer-productivity).")
+
+	require.Len(t, blocks, 1)
+	require.NotNil(t, blocks[0].Paragraph)
+	require.Len(t, blocks[0].Paragraph.RichText, 3)
+	require.Equal(t, "CreateOS blog", blocks[0].Paragraph.RichText[1].Text.Content)
+	require.NotNil(t, blocks[0].Paragraph.RichText[1].Text.Link)
+	require.Equal(t, "https://createos.sh/blogs/context-switching-cost-developer-productivity", blocks[0].Paragraph.RichText[1].Text.Link.URL)
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
