@@ -233,7 +233,15 @@ func TestOpenRouterTransientErrorsAreRetryable(t *testing.T) {
 	require.True(t, isTransientOpenRouterError("decode openrouter blog draft response: stream error: stream ID 3; INTERNAL_ERROR; received from peer"))
 	require.True(t, isTransientOpenRouterError("unexpected EOF"))
 	require.True(t, isTransientOpenRouterError("context deadline exceeded"))
+	require.True(t, isTransientOpenRouterError("openrouter chat response returned empty content"))
+	require.True(t, isTransientOpenRouterError("openrouter chat response returned no choices"))
 	require.False(t, isTransientOpenRouterError("unmarshal openrouter blog draft json: invalid character"))
+}
+
+func TestOpenRouterModelChainUsesPrimaryAndFallback(t *testing.T) {
+	require.Equal(t, []string{"gemini/gemini-3.1-flash", "deepseek/deepseek-chat"}, openRouterModelChain("gemini/gemini-3.1-flash", "deepseek/deepseek-chat"))
+	require.Equal(t, []string{"moonshotai/kimi-k2"}, openRouterModelChain("moonshotai/kimi-k2", "moonshotai/kimi-k2"))
+	require.Equal(t, []string{"moonshotai/kimi-k2"}, openRouterModelChain("", "moonshotai/kimi-k2"))
 }
 
 func TestBuildInternalLinkInventoryScoresCreateOSSitemapCategories(t *testing.T) {

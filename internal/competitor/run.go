@@ -258,7 +258,7 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	opportunities := deriveOpportunities(ourSnapshot, competitorSnapshots)
 	extractedTopics := []TopicSummary{}
 	if cfg.OpenRouterAPIKey != "" {
-		topics, promptDebug, topicErr := extractTopicsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterModel, competitorSnapshots)
+		topics, promptDebug, topicErr := extractTopicsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterModel, cfg.OpenRouterFallbackModel, cfg.OpenRouterTopicTimeoutSecs, competitorSnapshots)
 		debug.TopicPrompt = promptDebug
 		if topicErr != nil {
 			warnings = append(warnings, fmt.Sprintf("openrouter topic extraction skipped: %v", topicErr))
@@ -294,7 +294,7 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 			warnings = append(warnings, fmt.Sprintf("createos writing guidelines skipped: %v", guidelinesErr))
 		}
 		internalLinkInventory := buildCreateOSInternalLinkInventory(ourEntries, contentPlan)
-		drafts, draftErr := generateContentDraftsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, draftModel, contentPlan, cfg.CompetitorContentDraftLimit, createOSContext, createOSWritingGuidelines, cfg.OpenRouterDraftTimeoutSecs, internalLinkInventory)
+		drafts, draftErr := generateContentDraftsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, draftModel, cfg.OpenRouterDraftFallbackModel, contentPlan, cfg.CompetitorContentDraftLimit, createOSContext, createOSWritingGuidelines, cfg.OpenRouterDraftTimeoutSecs, internalLinkInventory)
 		if draftErr != nil {
 			warnings = append(warnings, fmt.Sprintf("openrouter blog draft generation skipped: %v", draftErr))
 		} else {

@@ -19,6 +19,7 @@ const (
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
 	defaultWindowDays             = 30
 	defaultCompetitorDraftLimit   = 1
+	defaultOpenRouterTopicTimeout = 180
 	defaultOpenRouterDraftTimeout = 240
 )
 
@@ -51,7 +52,10 @@ type Config struct {
 	OurSitemapURL                      string
 	OpenRouterAPIKey                   string
 	OpenRouterModel                    string
+	OpenRouterFallbackModel            string
 	OpenRouterDraftModel               string
+	OpenRouterDraftFallbackModel       string
+	OpenRouterTopicTimeoutSecs         int
 	OpenRouterDraftTimeoutSecs         int
 	CompetitorContentDraftLimit        int
 	NotionAPIKey                       string
@@ -80,6 +84,7 @@ func Load() (*Config, error) {
 		HTTPTimeoutSecs:             defaultHTTPTimeoutSecs,
 		OpenRouterModel:             defaultCompetitorModel,
 		CompetitorWindowDays:        defaultWindowDays,
+		OpenRouterTopicTimeoutSecs:  defaultOpenRouterTopicTimeout,
 		OpenRouterDraftTimeoutSecs:  defaultOpenRouterDraftTimeout,
 		CompetitorContentDraftLimit: defaultCompetitorDraftLimit,
 	}
@@ -187,7 +192,14 @@ func Load() (*Config, error) {
 		if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
 			cfg.OpenRouterModel = model
 		}
+		cfg.OpenRouterFallbackModel = strings.TrimSpace(os.Getenv("OPENROUTER_FALLBACK_MODEL"))
 		cfg.OpenRouterDraftModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_MODEL"))
+		cfg.OpenRouterDraftFallbackModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_FALLBACK_MODEL"))
+		topicTimeoutSecs, err := parsePositiveIntEnv("OPENROUTER_TOPIC_TIMEOUT_SEC", defaultOpenRouterTopicTimeout)
+		if err != nil {
+			return nil, err
+		}
+		cfg.OpenRouterTopicTimeoutSecs = topicTimeoutSecs
 		draftTimeoutSecs, err := parsePositiveIntEnv("OPENROUTER_DRAFT_TIMEOUT_SEC", defaultOpenRouterDraftTimeout)
 		if err != nil {
 			return nil, err

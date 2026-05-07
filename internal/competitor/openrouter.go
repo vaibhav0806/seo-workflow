@@ -173,7 +173,50 @@ func extractJSONObject(raw string) string {
 	return strings.TrimSpace(raw[start : end+1])
 }
 
-func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, competitors []SiteSnapshot) ([]TopicSummary, []TopicPromptDebug, error) {
+func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, fallbackModel string, timeoutSecs int, competitors []SiteSnapshot) ([]TopicSummary, []TopicPromptDebug, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, nil, nil
+	}
+	if timeoutSecs <= 0 {
+		timeoutSecs = 180
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "moonshotai/kimi-k2"
+	}
+
+	input, promptDebug := buildTopicPromptInputWithDebug(competitors, 40)
+	if len(input) == 0 {
+		return nil, promptDebug, nil
+	}
+	input, inputBytes, err := trimTopicPromptInputToBytes(input, topicPromptPayloadByteCap)
+	if err != nil {
+		return nil, promptDebug, fmt.Errorf("trim topic prompt input: %w", err)
+	}
+	if len(input) == 0 {
+		return nil, promptDebug, nil
+	}
+	systemPrompt := "You are an SEO strategist. Return only strict JSON with key topics[]."
+	userPrompt := "Analyze competitor page titles and URLs, then return 5-8 concrete themes per competitor. Ignore locale/translation, faq, careers/jobs, gallery, legal/privacy/terms, and company/about/team pages. Each theme item must include competitor, name, pageCount, representativeTitles, evidenceUrls, whyItMatters. JSON only. Data: " + string(inputBytes)
+
+	content, err := executeOpenRouterChatWithModelFallback(ctx, apiKey, openRouterModelChain(model, fallbackModel), 0.2, systemPrompt, userPrompt, timeoutSecs)
+	if err != nil {
+		return nil, promptDebug, fmt.Errorf("openrouter topic request failed: %w", err)
+	}
+	clean := extractJSONObject(content)
+	if clean == "" {
+		return nil, promptDebug, fmt.Errorf("openrouter topic response had no json object")
+	}
+
+	var out llmTopicOutput
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
+		return nil, promptDebug, fmt.Errorf("unmarshal openrouter topic json: %w", err)
+	}
+
+	return normalizeTopicSummaries(out.Topics), promptDebug, nil
+}
+
+func legacyExtractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, competitors []SiteSnapshot) ([]TopicSummary, []TopicPromptDebug, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return nil, nil, nil
@@ -254,7 +297,7 @@ func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, comp
 	return normalizeTopicSummaries(out.Topics), promptDebug, nil
 }
 
-func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model string, recommendations []ContentRecommendation, limit int, createOSContext string, writingGuidelines string, timeoutSecs int, internalLinkInventory []InternalLinkCandidate) ([]BlogDraft, error) {
+func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model string, fallbackModel string, recommendations []ContentRecommendation, limit int, createOSContext string, writingGuidelines string, timeoutSecs int, internalLinkInventory []InternalLinkCandidate) ([]BlogDraft, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" || limit <= 0 {
 		return nil, nil
@@ -265,17 +308,18 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	if strings.TrimSpace(model) == "" {
 		model = "moonshotai/kimi-k2"
 	}
+	models := openRouterModelChain(model, fallbackModel)
 	input := draftPromptInput(recommendations, limit, internalLinkInventory)
 	if len(input) == 0 {
 		return nil, nil
 	}
 	drafts := make([]BlogDraft, 0, len(input))
 	for _, item := range input {
-		brief, err := generateBlogDraftBrief(ctx, apiKey, model, item, createOSContext, writingGuidelines, timeoutSecs)
+		brief, err := generateBlogDraftBrief(ctx, apiKey, models, item, createOSContext, writingGuidelines, timeoutSecs)
 		if err != nil {
 			return nil, err
 		}
-		body, err := generateBlogDraftBody(ctx, apiKey, model, item, brief, createOSContext, writingGuidelines, timeoutSecs)
+		body, err := generateBlogDraftBody(ctx, apiKey, models, item, brief, createOSContext, writingGuidelines, timeoutSecs)
 		if err != nil {
 			return nil, err
 		}
@@ -285,12 +329,12 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	return normalizeBlogDrafts(drafts, limit), nil
 }
 
-func generateBlogDraftBrief(ctx context.Context, apiKey, model string, item blogDraftPromptItem, createOSContext string, writingGuidelines string, timeoutSecs int) (BlogDraft, error) {
+func generateBlogDraftBrief(ctx context.Context, apiKey string, models []string, item blogDraftPromptItem, createOSContext string, writingGuidelines string, timeoutSecs int) (BlogDraft, error) {
 	inputBytes, err := json.Marshal([]blogDraftPromptItem{item})
 	if err != nil {
 		return BlogDraft{}, fmt.Errorf("marshal blog draft brief input: %w", err)
 	}
-	content, err := executeOpenRouterChatWithRetry(ctx, apiKey, model, 0.3, "You are a product-led SEO strategist for CreateOS. Return only strict JSON with key drafts[].", blogDraftBriefUserPrompt(inputBytes, createOSContext, writingGuidelines), timeoutSecs)
+	content, err := executeOpenRouterChatWithModelFallback(ctx, apiKey, models, 0.3, "You are a product-led SEO strategist for CreateOS. Return only strict JSON with key drafts[].", blogDraftBriefUserPrompt(inputBytes, createOSContext, writingGuidelines), timeoutSecs)
 	if err != nil {
 		return BlogDraft{}, fmt.Errorf("openrouter blog draft brief skipped: %w", err)
 	}
@@ -309,12 +353,12 @@ func generateBlogDraftBrief(ctx context.Context, apiKey, model string, item blog
 	return briefs[0], nil
 }
 
-func generateBlogDraftBody(ctx context.Context, apiKey, model string, item blogDraftPromptItem, brief BlogDraft, createOSContext string, writingGuidelines string, timeoutSecs int) (string, error) {
+func generateBlogDraftBody(ctx context.Context, apiKey string, models []string, item blogDraftPromptItem, brief BlogDraft, createOSContext string, writingGuidelines string, timeoutSecs int) (string, error) {
 	briefBytes, err := json.Marshal(brief)
 	if err != nil {
 		return "", fmt.Errorf("marshal blog draft body brief input: %w", err)
 	}
-	content, err := executeOpenRouterChatWithRetry(ctx, apiKey, model, 0.4, "You are a product-led SEO writer for CreateOS. Return markdown only.", blogDraftBodyUserPrompt(item, brief, briefBytes, createOSContext, writingGuidelines), timeoutSecs)
+	content, err := executeOpenRouterChatWithModelFallback(ctx, apiKey, models, 0.4, "You are a product-led SEO writer for CreateOS. Return markdown only.", blogDraftBodyUserPrompt(item, brief, briefBytes, createOSContext, writingGuidelines), timeoutSecs)
 	if err != nil {
 		return "", fmt.Errorf("openrouter blog draft body skipped: %w", err)
 	}
@@ -343,6 +387,46 @@ func executeOpenRouterChatWithRetry(ctx context.Context, apiKey, model string, t
 		}
 	}
 	return "", lastErr
+}
+
+func executeOpenRouterChatWithModelFallback(ctx context.Context, apiKey string, models []string, temperature float64, systemPrompt string, userPrompt string, timeoutSecs int) (string, error) {
+	if len(models) == 0 {
+		models = []string{"moonshotai/kimi-k2"}
+	}
+	var lastErr error
+	for _, model := range models {
+		content, err := executeOpenRouterChatWithRetry(ctx, apiKey, model, temperature, systemPrompt, userPrompt, timeoutSecs)
+		if err == nil {
+			return content, nil
+		}
+		lastErr = err
+		if !isTransientOpenRouterError(err.Error()) {
+			break
+		}
+	}
+	return "", lastErr
+}
+
+func openRouterModelChain(primary string, fallback string) []string {
+	out := make([]string, 0, 2)
+	add := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == model {
+				return
+			}
+		}
+		out = append(out, model)
+	}
+	add(primary)
+	add(fallback)
+	if len(out) == 0 {
+		out = append(out, "moonshotai/kimi-k2")
+	}
+	return out
 }
 
 func executeOpenRouterChat(ctx context.Context, apiKey, model string, temperature float64, systemPrompt string, userPrompt string, timeoutSecs int) (string, error) {
@@ -397,7 +481,9 @@ func isTransientOpenRouterError(message string) bool {
 		strings.Contains(lower, "unexpected eof") ||
 		strings.Contains(lower, "connection reset") ||
 		strings.Contains(lower, "context deadline exceeded") ||
-		strings.Contains(lower, "client.timeout")
+		strings.Contains(lower, "client.timeout") ||
+		strings.Contains(lower, "returned empty content") ||
+		strings.Contains(lower, "returned no choices")
 }
 
 func blogDraftBriefUserPrompt(inputBytes []byte, createOSContext string, writingGuidelines string) string {
