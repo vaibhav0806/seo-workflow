@@ -169,6 +169,24 @@ func TestNormalizeBlogDraftsEmbedsExistingInternalLinksInBody(t *testing.T) {
 	require.NotContains(t, drafts[0].BodyMarkdown, "https://createos.sh/marketplace")
 }
 
+func TestNormalizeBlogDraftsDoesNotDoubleWrapExistingMarkdownLinks(t *testing.T) {
+	drafts := normalizeBlogDrafts([]BlogDraft{
+		{
+			Route:        "/solutions/enterprise-security-compliance",
+			Title:        "Enterprise Security Is Not a Feature List",
+			BodyMarkdown: "Teams need [container security posture](/blogs/container-security-on-nodeops-network-compute) across runtime environments.",
+			InternalLinks: []SEOLinkSuggestion{
+				{AnchorText: "container security posture", TargetPath: "/blogs/container-security-on-nodeops-network-compute", Status: "existing"},
+			},
+		},
+	}, 1)
+
+	require.Len(t, drafts, 1)
+	require.Contains(t, drafts[0].BodyMarkdown, "[container security posture](/blogs/container-security-on-nodeops-network-compute)")
+	require.NotContains(t, drafts[0].BodyMarkdown, "[[container security posture]")
+	require.NotContains(t, drafts[0].BodyMarkdown, ")](/blogs/container-security-on-nodeops-network-compute)")
+}
+
 func TestDraftPromptInputIncludesRelevantCreateOSInternalLinkCandidates(t *testing.T) {
 	recommendations := []ContentRecommendation{
 		{

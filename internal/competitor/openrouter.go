@@ -546,8 +546,11 @@ func embedExistingInternalLinks(body string, links []SEOLinkSuggestion) string {
 		if strings.Contains(updated, markdownLink) {
 			continue
 		}
-		if strings.Contains(updated, anchor) {
-			updated = strings.Replace(updated, anchor, markdownLink, 1)
+		if markdownLinkedAnchorExists(updated, anchor) {
+			continue
+		}
+		if idx := strings.Index(updated, anchor); idx >= 0 {
+			updated = updated[:idx] + markdownLink + updated[idx+len(anchor):]
 			continue
 		}
 		missing = append(missing, markdownLink)
@@ -556,6 +559,15 @@ func embedExistingInternalLinks(body string, links []SEOLinkSuggestion) string {
 		updated += "\n\nRelated CreateOS pages: " + strings.Join(missing, ", ") + "."
 	}
 	return updated
+}
+
+func markdownLinkedAnchorExists(body string, anchor string) bool {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return false
+	}
+	needle := "[" + anchor + "]("
+	return strings.Contains(body, needle)
 }
 
 func createOSLinkURL(targetPath string) string {
