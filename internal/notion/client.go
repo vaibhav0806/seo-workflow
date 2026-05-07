@@ -487,15 +487,58 @@ func draftPageBlocks(draft competitor.BlogDraft) []block {
 		bulletedListItem("Route: `" + draft.Route + "`"),
 		bulletedListItem("Title: " + draft.Title),
 	}
+	if len(draft.TitleOptions) > 0 {
+		children := make([]block, 0, len(draft.TitleOptions)+1)
+		for _, option := range draft.TitleOptions {
+			if strings.TrimSpace(option) == "" {
+				continue
+			}
+			children = append(children, bulletedListItem(option))
+		}
+		if strings.TrimSpace(draft.SelectedTitleReason) != "" {
+			children = append(children, paragraph("Why selected: "+draft.SelectedTitleReason))
+		}
+		if len(children) > 0 {
+			blocks = append(blocks, toggle("Title options", children))
+		}
+	}
 	if strings.TrimSpace(draft.MetaDescription) != "" {
 		blocks = append(blocks, bulletedListItem("Meta description: "+draft.MetaDescription))
 	}
 	if strings.TrimSpace(draft.CTA) != "" {
 		blocks = append(blocks, bulletedListItem("CTA: "+draft.CTA))
 	}
+	if len(draft.InternalLinks) > 0 {
+		blocks = append(blocks, seoLinkPlanToggle(draft))
+	}
 	blocks = append(blocks, divider())
 	blocks = append(blocks, markdownToBlocks(draft.BodyMarkdown)...)
 	return limitBlocks(blocks, 100)
+}
+
+func seoLinkPlanToggle(draft competitor.BlogDraft) block {
+	children := make([]block, 0, len(draft.InternalLinks)+1)
+	if len(draft.InternalLinks) > 0 {
+		children = append(children, heading3("CreateOS Internal Links"))
+		for _, link := range draft.InternalLinks {
+			children = append(children, bulletedListItem(formatSEOLinkSuggestion(link)))
+		}
+	}
+	return toggle("CreateOS internal link plan", children)
+}
+
+func formatSEOLinkSuggestion(link competitor.SEOLinkSuggestion) string {
+	parts := []string{link.AnchorText + " -> `" + link.TargetPath + "`"}
+	if strings.TrimSpace(link.Status) != "" {
+		parts = append(parts, "status: "+link.Status)
+	}
+	if strings.TrimSpace(link.Placement) != "" {
+		parts = append(parts, "placement: "+link.Placement)
+	}
+	if strings.TrimSpace(link.Reason) != "" {
+		parts = append(parts, "reason: "+link.Reason)
+	}
+	return strings.Join(parts, " | ")
 }
 
 func markdownToBlocks(markdown string) []block {
@@ -506,7 +549,7 @@ func markdownToBlocks(markdown string) []block {
 		if len(paragraphLines) == 0 {
 			return
 		}
-		blocks = append(blocks, paragraph(strings.Join(paragraphLines, " ")))
+		blocks = append(blocks, paragraphRich(markdownInlineRichText(strings.Join(paragraphLines, " "))))
 		paragraphLines = nil
 	}
 
@@ -528,10 +571,10 @@ func markdownToBlocks(markdown string) []block {
 			blocks = append(blocks, heading2(strings.TrimSpace(strings.TrimPrefix(line, "# "))))
 		case strings.HasPrefix(line, "- "):
 			flushParagraph()
-			blocks = append(blocks, bulletedListItem(strings.TrimSpace(strings.TrimPrefix(line, "- "))))
+			blocks = append(blocks, bulletedListItemRich(markdownInlineRichText(strings.TrimSpace(strings.TrimPrefix(line, "- ")))))
 		case strings.HasPrefix(line, "* "):
 			flushParagraph()
-			blocks = append(blocks, bulletedListItem(strings.TrimSpace(strings.TrimPrefix(line, "* "))))
+			blocks = append(blocks, bulletedListItemRich(markdownInlineRichText(strings.TrimSpace(strings.TrimPrefix(line, "* ")))))
 		default:
 			paragraphLines = append(paragraphLines, line)
 		}
@@ -552,8 +595,16 @@ func paragraph(content string) block {
 	return block{Object: "block", Type: "paragraph", Paragraph: &richTextBlock{RichText: []richText{textRichText(content)}}}
 }
 
+func paragraphRich(rich []richText) block {
+	return block{Object: "block", Type: "paragraph", Paragraph: &richTextBlock{RichText: rich}}
+}
+
 func bulletedListItem(content string) block {
 	return block{Object: "block", Type: "bulleted_list_item", BulletedListItem: &richTextBlock{RichText: []richText{textRichText(content)}}}
+}
+
+func bulletedListItemRich(rich []richText) block {
+	return block{Object: "block", Type: "bulleted_list_item", BulletedListItem: &richTextBlock{RichText: rich}}
 }
 
 func numberedListItem(content string) block {
@@ -653,6 +704,49 @@ func linkRichText(content string, url string) richText {
 		text.Text.Link = &link{URL: strings.TrimSpace(url)}
 	}
 	return text
+}
+
+func markdownInlineRichText(content string) []richText {
+	if !strings.Contains(content, "](") {
+		return []richText{textRichText(content)}
+	}
+	out := make([]richText, 0, 3)
+	remaining := content
+	for {
+		open := strings.Index(remaining, "[")
+		if open == -1 {
+			break
+		}
+		close := strings.Index(remaining[open:], "](")
+		if close == -1 {
+			break
+		}
+		close += open
+		urlStart := close + len("](")
+		urlEndRel := strings.Index(remaining[urlStart:], ")")
+		if urlEndRel == -1 {
+			break
+		}
+		urlEnd := urlStart + urlEndRel
+		if open > 0 {
+			out = append(out, textRichText(remaining[:open]))
+		}
+		label := remaining[open+1 : close]
+		url := remaining[urlStart:urlEnd]
+		if strings.TrimSpace(label) == "" || strings.TrimSpace(url) == "" {
+			out = append(out, textRichText(remaining[:urlEnd+1]))
+		} else {
+			out = append(out, linkRichText(label, url))
+		}
+		remaining = remaining[urlEnd+1:]
+	}
+	if remaining != "" {
+		out = append(out, textRichText(remaining))
+	}
+	if len(out) == 0 {
+		return []richText{textRichText(content)}
+	}
+	return out
 }
 
 func titleWord(raw string) string {

@@ -64,12 +64,33 @@ type ContentRecommendation struct {
 }
 
 type BlogDraft struct {
-	Route           string `json:"route"`
-	Title           string `json:"title"`
-	MetaDescription string `json:"metaDescription"`
-	BodyMarkdown    string `json:"bodyMarkdown"`
-	CTA             string `json:"cta"`
-	Status          string `json:"status"`
+	Route               string              `json:"route"`
+	Title               string              `json:"title"`
+	TitleOptions        []string            `json:"titleOptions,omitempty"`
+	SelectedTitleReason string              `json:"selectedTitleReason,omitempty"`
+	MetaDescription     string              `json:"metaDescription"`
+	BodyMarkdown        string              `json:"bodyMarkdown"`
+	InternalLinks       []SEOLinkSuggestion `json:"internalLinks,omitempty"`
+	CTA                 string              `json:"cta"`
+	Status              string              `json:"status"`
+}
+
+type SEOLinkSuggestion struct {
+	AnchorText string `json:"anchorText"`
+	TargetPath string `json:"targetPath"`
+	Placement  string `json:"placement"`
+	Reason     string `json:"reason"`
+	Status     string `json:"status,omitempty"`
+}
+
+type InternalLinkCandidate struct {
+	URL      string `json:"url"`
+	Path     string `json:"path"`
+	Title    string `json:"title,omitempty"`
+	PageType string `json:"pageType"`
+	Category string `json:"category,omitempty"`
+	Score    int    `json:"score"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type ContentPageRecommendation struct {
@@ -174,14 +195,15 @@ var defaultCompetitors = []CompetitorTarget{
 	{Name: "vercel", SitemapURL: "https://vercel.com/sitemap.xml"},
 	{Name: "lovable", SitemapURL: "https://lovable.dev/sitemap.xml"},
 	{Name: "replit", SitemapURL: "https://replit.com/sitemap.xml"},
+	{Name: "emergent", SitemapURL: "https://emergent.sh/sitemap.xml"},
 }
 
 const (
 	titleEnrichmentLimit       = 40
 	titleEnrichmentConcurrency = 8
 	titleEnrichmentTimeout     = 20 * time.Second
-	contentDraftLimit          = 3
 	createOSContextPath        = "docs/createos-context.md"
+	createOSWritingGuidesPath  = "docs/createos-writing-guidelines.md"
 )
 
 func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
@@ -263,15 +285,20 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		if draftModel == "" {
 			draftModel = cfg.OpenRouterModel
 		}
-		createOSContext, contextErr := readCreateOSContext(createOSContextPath)
+		createOSContext, contextErr := readGuidanceFile(createOSContextPath)
 		if contextErr != nil {
 			warnings = append(warnings, fmt.Sprintf("createos context skipped: %v", contextErr))
 		}
-		drafts, draftErr := generateContentDraftsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, draftModel, contentPlan, contentDraftLimit, createOSContext)
+		createOSWritingGuidelines, guidelinesErr := readGuidanceFile(createOSWritingGuidesPath)
+		if guidelinesErr != nil {
+			warnings = append(warnings, fmt.Sprintf("createos writing guidelines skipped: %v", guidelinesErr))
+		}
+		internalLinkInventory := buildCreateOSInternalLinkInventory(ourEntries, contentPlan)
+		drafts, draftErr := generateContentDraftsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, draftModel, contentPlan, cfg.CompetitorContentDraftLimit, createOSContext, createOSWritingGuidelines, cfg.OpenRouterDraftTimeoutSecs, internalLinkInventory)
 		if draftErr != nil {
 			warnings = append(warnings, fmt.Sprintf("openrouter blog draft generation skipped: %v", draftErr))
 		} else {
-			contentPlan = attachDraftsToContentRecommendations(contentPlan, drafts, contentDraftLimit)
+			contentPlan = attachDraftsToContentRecommendations(contentPlan, drafts, cfg.CompetitorContentDraftLimit)
 		}
 	}
 
@@ -290,7 +317,7 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	}, nil
 }
 
-func readCreateOSContext(path string) (string, error) {
+func readGuidanceFile(path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
