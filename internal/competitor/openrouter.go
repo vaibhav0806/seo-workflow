@@ -13,6 +13,7 @@ import (
 
 const openRouterEndpoint = "https://openrouter.ai/api/v1/chat/completions"
 const topicPromptPayloadByteCap = 120_000
+const internalLinkCandidatePromptLimit = 20
 
 type openRouterRequest struct {
 	Model       string              `json:"model"`
@@ -42,6 +43,10 @@ type llmTopicOutput struct {
 }
 
 type llmBlogDraftOutput struct {
+	Drafts []BlogDraft `json:"drafts"`
+}
+
+type llmBlogDraftBriefOutput struct {
 	Drafts []BlogDraft `json:"drafts"`
 }
 
@@ -264,16 +269,86 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	if len(input) == 0 {
 		return nil, nil
 	}
-	inputBytes, err := json.Marshal(input)
-	if err != nil {
-		return nil, fmt.Errorf("marshal blog draft prompt input: %w", err)
+	drafts := make([]BlogDraft, 0, len(input))
+	for _, item := range input {
+		brief, err := generateBlogDraftBrief(ctx, apiKey, model, item, createOSContext, writingGuidelines, timeoutSecs)
+		if err != nil {
+			return nil, err
+		}
+		body, err := generateBlogDraftBody(ctx, apiKey, model, item, brief, createOSContext, writingGuidelines, timeoutSecs)
+		if err != nil {
+			return nil, err
+		}
+		brief.BodyMarkdown = body
+		drafts = append(drafts, brief)
 	}
+	return normalizeBlogDrafts(drafts, limit), nil
+}
 
-	systemPrompt := "You are a product-led SEO writer for CreateOS. Return only strict JSON with key drafts[]."
-	userPrompt := blogDraftUserPrompt(inputBytes, createOSContext, writingGuidelines)
+func generateBlogDraftBrief(ctx context.Context, apiKey, model string, item blogDraftPromptItem, createOSContext string, writingGuidelines string, timeoutSecs int) (BlogDraft, error) {
+	inputBytes, err := json.Marshal([]blogDraftPromptItem{item})
+	if err != nil {
+		return BlogDraft{}, fmt.Errorf("marshal blog draft brief input: %w", err)
+	}
+	content, err := executeOpenRouterChatWithRetry(ctx, apiKey, model, 0.3, "You are a product-led SEO strategist for CreateOS. Return only strict JSON with key drafts[].", blogDraftBriefUserPrompt(inputBytes, createOSContext, writingGuidelines), timeoutSecs)
+	if err != nil {
+		return BlogDraft{}, fmt.Errorf("openrouter blog draft brief skipped: %w", err)
+	}
+	clean := extractJSONObject(strings.TrimSpace(content))
+	if clean == "" {
+		return BlogDraft{}, fmt.Errorf("openrouter blog draft brief had no json object")
+	}
+	var out llmBlogDraftBriefOutput
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
+		return BlogDraft{}, fmt.Errorf("unmarshal openrouter blog draft brief json: %w", err)
+	}
+	briefs := normalizeBlogDraftsAllowEmptyBody(out.Drafts, 1)
+	if len(briefs) == 0 {
+		return BlogDraft{}, fmt.Errorf("openrouter blog draft brief returned zero usable drafts")
+	}
+	return briefs[0], nil
+}
+
+func generateBlogDraftBody(ctx context.Context, apiKey, model string, item blogDraftPromptItem, brief BlogDraft, createOSContext string, writingGuidelines string, timeoutSecs int) (string, error) {
+	briefBytes, err := json.Marshal(brief)
+	if err != nil {
+		return "", fmt.Errorf("marshal blog draft body brief input: %w", err)
+	}
+	content, err := executeOpenRouterChatWithRetry(ctx, apiKey, model, 0.4, "You are a product-led SEO writer for CreateOS. Return markdown only.", blogDraftBodyUserPrompt(item, brief, briefBytes, createOSContext, writingGuidelines), timeoutSecs)
+	if err != nil {
+		return "", fmt.Errorf("openrouter blog draft body skipped: %w", err)
+	}
+	body := strings.TrimSpace(strings.Trim(content, "`"))
+	if body == "" {
+		return "", fmt.Errorf("openrouter blog draft body returned empty content")
+	}
+	return body, nil
+}
+
+func executeOpenRouterChatWithRetry(ctx context.Context, apiKey, model string, temperature float64, systemPrompt string, userPrompt string, timeoutSecs int) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		content, err := executeOpenRouterChat(ctx, apiKey, model, temperature, systemPrompt, userPrompt, timeoutSecs)
+		if err == nil {
+			return content, nil
+		}
+		lastErr = err
+		if !isTransientOpenRouterError(err.Error()) || attempt == 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Duration(attempt*3) * time.Second):
+		}
+	}
+	return "", lastErr
+}
+
+func executeOpenRouterChat(ctx context.Context, apiKey, model string, temperature float64, systemPrompt string, userPrompt string, timeoutSecs int) (string, error) {
 	requestBody := openRouterRequest{
 		Model:       model,
-		Temperature: 0.35,
+		Temperature: temperature,
 		Messages: []openRouterMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
@@ -281,11 +356,11 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	}
 	payload, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("marshal openrouter blog draft request: %w", err)
+		return "", fmt.Errorf("marshal openrouter chat request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterEndpoint, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("build openrouter blog draft request: %w", err)
+		return "", fmt.Errorf("build openrouter chat request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -293,38 +368,39 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("execute openrouter blog draft request: %w", err)
+		return "", fmt.Errorf("execute openrouter chat request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("openrouter blog draft status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("openrouter chat status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var parsed openRouterResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("decode openrouter blog draft response: %w", err)
+		return "", fmt.Errorf("decode openrouter chat response: %w", err)
 	}
 	if len(parsed.Choices) == 0 {
-		return nil, fmt.Errorf("openrouter blog draft response returned no choices")
+		return "", fmt.Errorf("openrouter chat response returned no choices")
 	}
 	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
 	if content == "" {
-		return nil, fmt.Errorf("openrouter blog draft response returned empty content")
+		return "", fmt.Errorf("openrouter chat response returned empty content")
 	}
-	clean := extractJSONObject(content)
-	if clean == "" {
-		return nil, fmt.Errorf("openrouter blog draft response had no json object")
-	}
-
-	var out llmBlogDraftOutput
-	if err := json.Unmarshal([]byte(clean), &out); err != nil {
-		return nil, fmt.Errorf("unmarshal openrouter blog draft json: %w", err)
-	}
-	return normalizeBlogDrafts(out.Drafts, limit), nil
+	return content, nil
 }
 
-func blogDraftUserPrompt(inputBytes []byte, createOSContext string, writingGuidelines string) string {
+func isTransientOpenRouterError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "stream error") ||
+		strings.Contains(lower, "internal_error") ||
+		strings.Contains(lower, "unexpected eof") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "context deadline exceeded") ||
+		strings.Contains(lower, "client.timeout")
+}
+
+func blogDraftBriefUserPrompt(inputBytes []byte, createOSContext string, writingGuidelines string) string {
 	contextInstruction := ""
 	if strings.TrimSpace(createOSContext) != "" {
 		contextInstruction = " Use the CreateOS context as positioning guidance, not as text to copy verbatim. Do not invent claims beyond the CreateOS context and recommendation input. CreateOS context: " + strings.TrimSpace(createOSContext)
@@ -333,7 +409,20 @@ func blogDraftUserPrompt(inputBytes []byte, createOSContext string, writingGuide
 	if strings.TrimSpace(writingGuidelines) != "" {
 		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
 	}
-	return "Create publishable first-draft content for each recommendation. Do not invent customers, metrics, pricing, guarantees, or product capabilities not present in the input. Each draft must include route, title, titleOptions, selectedTitleReason, metaDescription, bodyMarkdown, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely the strongest SEO title. Avoid hype, clickbait, unsupported numeric claims, and generic AI wording in titles. selectedTitleReason should explain in one sentence why the chosen title is strongest for intent and curiosity. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list per draft. Each H2 section should have 2-4 paragraphs. Avoid placeholder points, generic listicle filler, and implementation claims that are not in the input. Include an H1, intro, 4-6 H2 sections, an honest tradeoffs section, and a closing CTA. Make each draft content-repo-ready: include a clear route, SEO title, meta description, publication-ready markdown body, suggested CTA, and enough structure to convert into markdown frontmatter later. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Use status=existing only for URLs provided in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when they are relevant. Use status=planned only for recommended or cluster pages that may not exist yet. These are links from the generated blog to CreateOS pages that boost CreateOS SEO. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype/corporate language, generic AI tells, and unsupported absolute claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
+	return "Create a small SEO brief for each recommendation. Do not generate bodyMarkdown. Each draft object must include route, title, titleOptions, selectedTitleReason, metaDescription, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely strongest. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Use status=existing only for URLs provided in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when relevant. Use status=planned only for recommended or cluster pages that may not exist yet. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype, clickbait, unsupported numeric claims, generic AI wording, and unsupported product claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
+}
+
+func blogDraftBodyUserPrompt(item blogDraftPromptItem, brief BlogDraft, briefBytes []byte, createOSContext string, writingGuidelines string) string {
+	contextInstruction := ""
+	if strings.TrimSpace(createOSContext) != "" {
+		contextInstruction = " Use the CreateOS context as positioning guidance, not as text to copy verbatim. Do not invent claims beyond the CreateOS context and brief. CreateOS context: " + strings.TrimSpace(createOSContext)
+	}
+	guidelinesInstruction := ""
+	if strings.TrimSpace(writingGuidelines) != "" {
+		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
+	}
+	itemBytes, _ := json.Marshal(item)
+	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list. Each H2 section should have 2-4 paragraphs. Include an H1 matching the selected title, intro, 4-6 H2 sections, an honest tradeoffs section, and a closing CTA. Make it content-repo-ready publication markdown. Naturally include the selected existing CreateOS internal links from the brief as markdown links where relevant. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype/corporate language, generic AI tells, placeholder points, and unsupported absolute claims. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
 }
 
 type blogDraftPromptItem struct {
@@ -369,11 +458,40 @@ func draftPromptInput(recommendations []ContentRecommendation, limit int, intern
 			InternalLinkCandidates: selectInternalLinkCandidatesForRecommendation(
 				recommendation,
 				internalLinkInventory,
-				30,
+				internalLinkCandidatePromptLimit,
 			),
 		})
 	}
 	return items
+}
+
+func normalizeBlogDraftsAllowEmptyBody(drafts []BlogDraft, limit int) []BlogDraft {
+	out := make([]BlogDraft, 0, min(len(drafts), limit))
+	for _, draft := range drafts {
+		if len(out) == limit {
+			break
+		}
+		route := strings.TrimSpace(draft.Route)
+		title := strings.TrimSpace(draft.Title)
+		if route == "" || title == "" {
+			continue
+		}
+		status := strings.TrimSpace(draft.Status)
+		if status == "" {
+			status = "ai-generated-draft"
+		}
+		out = append(out, BlogDraft{
+			Route:               route,
+			Title:               title,
+			TitleOptions:        normalizeTitleOptions(draft.TitleOptions, title),
+			SelectedTitleReason: strings.TrimSpace(draft.SelectedTitleReason),
+			MetaDescription:     strings.TrimSpace(draft.MetaDescription),
+			InternalLinks:       normalizeSEOLinkSuggestions(draft.InternalLinks, 5),
+			CTA:                 strings.TrimSpace(draft.CTA),
+			Status:              status,
+		})
+	}
+	return out
 }
 
 func normalizeBlogDrafts(drafts []BlogDraft, limit int) []BlogDraft {

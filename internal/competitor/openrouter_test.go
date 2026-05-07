@@ -88,7 +88,9 @@ func TestAttachDraftsToContentRecommendationsCapsTopN(t *testing.T) {
 }
 
 func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
-	prompt := blogDraftUserPrompt(
+	prompt := blogDraftBodyUserPrompt(
+		blogDraftPromptItem{Route: "/blogs/test", Title: "Test Draft"},
+		BlogDraft{Route: "/blogs/test", Title: "Test Draft"},
 		[]byte(`{"recommendations":[]}`),
 		"CreateOS is the workspace where ideas become applications.",
 		"Use Naman/CreateOS voice. Ban hype phrases like revolutionary and game-changing.",
@@ -105,14 +107,24 @@ func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
 	require.Contains(t, prompt, "content-repo-ready")
 	require.Contains(t, prompt, "honest tradeoffs section")
 	require.Contains(t, prompt, "Do not use em dashes")
+	require.Contains(t, prompt, "markdown only")
+	require.Contains(t, prompt, "Do not create external citation plans or third-party backlink outreach ideas")
+}
+
+func TestBlogDraftBriefPromptRequestsSmallJSONOnly(t *testing.T) {
+	prompt := blogDraftBriefUserPrompt(
+		[]byte(`{"recommendations":[]}`),
+		"CreateOS is the workspace where ideas become applications.",
+		"Use Naman/CreateOS voice.",
+	)
+
+	require.Contains(t, prompt, "small SEO brief")
+	require.Contains(t, prompt, "Do not generate bodyMarkdown")
 	require.Contains(t, prompt, "titleOptions")
 	require.Contains(t, prompt, "selectedTitleReason")
-	require.Contains(t, prompt, "problem/tension, contrarian, value, story, or authority")
-	require.Contains(t, prompt, "Avoid bland titles")
 	require.Contains(t, prompt, "internalLinks")
-	require.Contains(t, prompt, "CreateOS-only SEO internal-link plan")
-	require.Contains(t, prompt, "3-5 links to createos.sh pages")
-	require.Contains(t, prompt, "Do not create external citation plans or third-party backlink outreach ideas")
+	require.Contains(t, prompt, "status=existing only for URLs provided in internalLinkCandidates")
+	require.Contains(t, prompt, "JSON only")
 }
 
 func TestNormalizeBlogDraftsKeepsTitleOptions(t *testing.T) {
@@ -178,6 +190,32 @@ func TestDraftPromptInputIncludesRelevantCreateOSInternalLinkCandidates(t *testi
 	require.Equal(t, "/blogs/solo-founder-workflow-context-switching", input[0].InternalLinkCandidates[0].Path)
 	require.Equal(t, "/case-studies/justref", input[0].InternalLinkCandidates[1].Path)
 	require.NotContains(t, internalLinkCandidatePaths(input[0].InternalLinkCandidates), "/blogs/nodeops-network-mint-and-burn-strategies")
+}
+
+func TestDraftPromptInputCapsInternalLinkCandidatesAtTwenty(t *testing.T) {
+	recommendations := []ContentRecommendation{{SuggestedSlug: "/blogs/test", SuggestedTitle: "Test Draft"}}
+	inventory := make([]InternalLinkCandidate, 0, 25)
+	for idx := 0; idx < 25; idx++ {
+		inventory = append(inventory, InternalLinkCandidate{
+			URL:      "https://createos.sh/blogs/test",
+			Path:     "/blogs/test",
+			Title:    "Test",
+			PageType: "blog",
+			Score:    80 - idx,
+		})
+	}
+
+	input := draftPromptInput(recommendations, 1, inventory)
+
+	require.Len(t, input, 1)
+	require.Len(t, input[0].InternalLinkCandidates, 20)
+}
+
+func TestOpenRouterTransientErrorsAreRetryable(t *testing.T) {
+	require.True(t, isTransientOpenRouterError("decode openrouter blog draft response: stream error: stream ID 3; INTERNAL_ERROR; received from peer"))
+	require.True(t, isTransientOpenRouterError("unexpected EOF"))
+	require.True(t, isTransientOpenRouterError("context deadline exceeded"))
+	require.False(t, isTransientOpenRouterError("unmarshal openrouter blog draft json: invalid character"))
 }
 
 func TestBuildInternalLinkInventoryScoresCreateOSSitemapCategories(t *testing.T) {
