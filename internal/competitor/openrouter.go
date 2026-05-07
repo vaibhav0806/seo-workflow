@@ -249,15 +249,18 @@ func extractTopicsWithOpenRouter(ctx context.Context, apiKey, model string, comp
 	return normalizeTopicSummaries(out.Topics), promptDebug, nil
 }
 
-func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model string, recommendations []ContentRecommendation, limit int, createOSContext string) ([]BlogDraft, error) {
+func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model string, recommendations []ContentRecommendation, limit int, createOSContext string, writingGuidelines string, timeoutSecs int, internalLinkInventory []InternalLinkCandidate) ([]BlogDraft, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" || limit <= 0 {
 		return nil, nil
 	}
+	if timeoutSecs <= 0 {
+		timeoutSecs = 240
+	}
 	if strings.TrimSpace(model) == "" {
 		model = "moonshotai/kimi-k2"
 	}
-	input := draftPromptInput(recommendations, limit)
+	input := draftPromptInput(recommendations, limit, internalLinkInventory)
 	if len(input) == 0 {
 		return nil, nil
 	}
@@ -267,7 +270,7 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	}
 
 	systemPrompt := "You are a product-led SEO writer for CreateOS. Return only strict JSON with key drafts[]."
-	userPrompt := blogDraftUserPrompt(inputBytes, createOSContext)
+	userPrompt := blogDraftUserPrompt(inputBytes, createOSContext, writingGuidelines)
 	requestBody := openRouterRequest{
 		Model:       model,
 		Temperature: 0.35,
@@ -287,7 +290,7 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute openrouter blog draft request: %w", err)
@@ -321,25 +324,30 @@ func generateContentDraftsWithOpenRouter(ctx context.Context, apiKey, model stri
 	return normalizeBlogDrafts(out.Drafts, limit), nil
 }
 
-func blogDraftUserPrompt(inputBytes []byte, createOSContext string) string {
+func blogDraftUserPrompt(inputBytes []byte, createOSContext string, writingGuidelines string) string {
 	contextInstruction := ""
 	if strings.TrimSpace(createOSContext) != "" {
 		contextInstruction = " Use the CreateOS context as positioning guidance, not as text to copy verbatim. Do not invent claims beyond the CreateOS context and recommendation input. CreateOS context: " + strings.TrimSpace(createOSContext)
 	}
-	return "Create publishable first-draft content for each recommendation. Do not invent customers, metrics, pricing, guarantees, or product capabilities not present in the input. Each draft must include route, title, metaDescription, bodyMarkdown, cta, status. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list per draft. Each H2 section should have 2-4 paragraphs. Avoid placeholder points, generic listicle filler, and implementation claims that are not in the input. Include an H1, intro, 4-6 H2 sections, and a closing CTA." + contextInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
+	guidelinesInstruction := ""
+	if strings.TrimSpace(writingGuidelines) != "" {
+		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
+	}
+	return "Create publishable first-draft content for each recommendation. Do not invent customers, metrics, pricing, guarantees, or product capabilities not present in the input. Each draft must include route, title, titleOptions, selectedTitleReason, metaDescription, bodyMarkdown, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely the strongest SEO title. Avoid hype, clickbait, unsupported numeric claims, and generic AI wording in titles. selectedTitleReason should explain in one sentence why the chosen title is strongest for intent and curiosity. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list per draft. Each H2 section should have 2-4 paragraphs. Avoid placeholder points, generic listicle filler, and implementation claims that are not in the input. Include an H1, intro, 4-6 H2 sections, an honest tradeoffs section, and a closing CTA. Make each draft content-repo-ready: include a clear route, SEO title, meta description, publication-ready markdown body, suggested CTA, and enough structure to convert into markdown frontmatter later. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Use status=existing only for URLs provided in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when they are relevant. Use status=planned only for recommended or cluster pages that may not exist yet. These are links from the generated blog to CreateOS pages that boost CreateOS SEO. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype/corporate language, generic AI tells, and unsupported absolute claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
 }
 
 type blogDraftPromptItem struct {
-	Route          string   `json:"route"`
-	Title          string   `json:"title"`
-	PageType       string   `json:"pageType"`
-	TargetIntent   string   `json:"targetIntent"`
-	Pillar         string   `json:"pillar"`
-	ContentAngle   string   `json:"contentAngle"`
-	SourceEvidence []string `json:"sourceEvidence,omitempty"`
+	Route                  string                  `json:"route"`
+	Title                  string                  `json:"title"`
+	PageType               string                  `json:"pageType"`
+	TargetIntent           string                  `json:"targetIntent"`
+	Pillar                 string                  `json:"pillar"`
+	ContentAngle           string                  `json:"contentAngle"`
+	SourceEvidence         []string                `json:"sourceEvidence,omitempty"`
+	InternalLinkCandidates []InternalLinkCandidate `json:"internalLinkCandidates,omitempty"`
 }
 
-func draftPromptInput(recommendations []ContentRecommendation, limit int) []blogDraftPromptItem {
+func draftPromptInput(recommendations []ContentRecommendation, limit int, internalLinkInventory []InternalLinkCandidate) []blogDraftPromptItem {
 	items := make([]blogDraftPromptItem, 0, min(len(recommendations), limit))
 	for _, recommendation := range recommendations {
 		if len(items) == limit {
@@ -358,6 +366,11 @@ func draftPromptInput(recommendations []ContentRecommendation, limit int) []blog
 			Pillar:         recommendation.Pillar,
 			ContentAngle:   recommendation.ContentAngle,
 			SourceEvidence: limitStrings(recommendation.SourceEvidence, 3),
+			InternalLinkCandidates: selectInternalLinkCandidatesForRecommendation(
+				recommendation,
+				internalLinkInventory,
+				30,
+			),
 		})
 	}
 	return items
@@ -379,14 +392,120 @@ func normalizeBlogDrafts(drafts []BlogDraft, limit int) []BlogDraft {
 		if status == "" {
 			status = "ai-generated-draft"
 		}
+		internalLinks := normalizeSEOLinkSuggestions(draft.InternalLinks, 5)
 		out = append(out, BlogDraft{
-			Route:           route,
-			Title:           title,
-			MetaDescription: strings.TrimSpace(draft.MetaDescription),
-			BodyMarkdown:    body,
-			CTA:             strings.TrimSpace(draft.CTA),
-			Status:          status,
+			Route:               route,
+			Title:               title,
+			TitleOptions:        normalizeTitleOptions(draft.TitleOptions, title),
+			SelectedTitleReason: strings.TrimSpace(draft.SelectedTitleReason),
+			MetaDescription:     strings.TrimSpace(draft.MetaDescription),
+			BodyMarkdown:        embedExistingInternalLinks(body, internalLinks),
+			InternalLinks:       internalLinks,
+			CTA:                 strings.TrimSpace(draft.CTA),
+			Status:              status,
 		})
+	}
+	return out
+}
+
+func embedExistingInternalLinks(body string, links []SEOLinkSuggestion) string {
+	body = strings.TrimSpace(body)
+	if body == "" || len(links) == 0 {
+		return body
+	}
+	updated := body
+	missing := make([]string, 0, len(links))
+	for _, link := range links {
+		if strings.ToLower(strings.TrimSpace(link.Status)) != "existing" {
+			continue
+		}
+		anchor := strings.TrimSpace(link.AnchorText)
+		url := createOSLinkURL(link.TargetPath)
+		if anchor == "" || url == "" || strings.Contains(updated, url) {
+			continue
+		}
+		markdownLink := "[" + anchor + "](" + url + ")"
+		if strings.Contains(updated, markdownLink) {
+			continue
+		}
+		if strings.Contains(updated, anchor) {
+			updated = strings.Replace(updated, anchor, markdownLink, 1)
+			continue
+		}
+		missing = append(missing, markdownLink)
+	}
+	if len(missing) > 0 {
+		updated += "\n\nRelated CreateOS pages: " + strings.Join(missing, ", ") + "."
+	}
+	return updated
+}
+
+func createOSLinkURL(targetPath string) string {
+	target := strings.TrimSpace(targetPath)
+	if target == "" {
+		return ""
+	}
+	if strings.HasPrefix(target, "https://createos.sh") {
+		return target
+	}
+	if !strings.HasPrefix(target, "/") {
+		target = "/" + target
+	}
+	return "https://createos.sh" + target
+}
+
+func normalizeSEOLinkSuggestions(suggestions []SEOLinkSuggestion, limit int) []SEOLinkSuggestion {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]SEOLinkSuggestion, 0, min(len(suggestions), limit))
+	for _, suggestion := range suggestions {
+		if len(out) == limit {
+			break
+		}
+		anchor := strings.TrimSpace(suggestion.AnchorText)
+		target := strings.TrimSpace(suggestion.TargetPath)
+		if anchor == "" || target == "" {
+			continue
+		}
+		status := strings.ToLower(strings.TrimSpace(suggestion.Status))
+		if status != "existing" && status != "planned" {
+			status = ""
+		}
+		out = append(out, SEOLinkSuggestion{
+			AnchorText: anchor,
+			TargetPath: target,
+			Placement:  strings.TrimSpace(suggestion.Placement),
+			Reason:     strings.TrimSpace(suggestion.Reason),
+			Status:     status,
+		})
+	}
+	return out
+}
+
+func normalizeTitleOptions(options []string, selectedTitle string) []string {
+	out := make([]string, 0, min(len(options)+1, 5))
+	seen := map[string]struct{}{}
+	add := func(option string) {
+		option = strings.TrimSpace(option)
+		key := strings.ToLower(option)
+		if option == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, option)
+	}
+	for _, option := range options {
+		if len(out) == 5 {
+			break
+		}
+		add(option)
+	}
+	if len(out) == 0 {
+		add(selectedTitle)
 	}
 	return out
 }

@@ -131,12 +131,17 @@ func TestReportBlocksUsesScannableNotionLayout(t *testing.T) {
 
 func TestDraftPageBlocksRenderMarkdownAsNotionBlocks(t *testing.T) {
 	blocks := draftPageBlocks(competitor.BlogDraft{
-		Route:           "/use-cases/persona-based-ai-use-cases",
-		Title:           "Persona-Based AI Use Cases with CreateOS",
-		MetaDescription: "Create persona-specific AI workflows.",
-		BodyMarkdown:    "# Persona-Based AI Use Cases with CreateOS\n\nModern teams need AI workflows that fit how people work.\n\n## Software Engineers\n\nEngineers need precise context.\n\n- Define role-specific prompts\n- Keep implementation consistent",
-		CTA:             "Start building.",
-		Status:          "ai-generated-draft",
+		Route:               "/use-cases/persona-based-ai-use-cases",
+		Title:               "AI Workflows Should Match the Person Doing the Work",
+		TitleOptions:        []string{"AI Workflows Should Match the Person Doing the Work", "Persona-Based AI Use Cases with CreateOS"},
+		SelectedTitleReason: "The selected title creates a clearer reader hook while preserving intent.",
+		MetaDescription:     "Create persona-specific AI workflows.",
+		BodyMarkdown:        "# Persona-Based AI Use Cases with CreateOS\n\nModern teams need AI workflows that fit how people work.\n\n## Software Engineers\n\nEngineers need precise context.\n\n- Define role-specific prompts\n- Keep implementation consistent",
+		InternalLinks: []competitor.SEOLinkSuggestion{
+			{AnchorText: "unified execution layer", TargetPath: "/", Placement: "intro", Reason: "Connects to product positioning.", Status: "existing"},
+		},
+		CTA:    "Start building.",
+		Status: "ai-generated-draft",
 	})
 
 	types := blockTypes(blocks)
@@ -146,9 +151,28 @@ func TestDraftPageBlocksRenderMarkdownAsNotionBlocks(t *testing.T) {
 	require.Contains(t, types, "paragraph")
 	require.Contains(t, types, "bulleted_list_item")
 	require.NotContains(t, types, "code")
+	require.Contains(t, texts, "AI Workflows Should Match the Person Doing the Work")
+	require.Contains(t, texts, "Title options")
 	require.Contains(t, texts, "Persona-Based AI Use Cases with CreateOS")
+	require.Contains(t, texts, "Why selected: The selected title creates a clearer reader hook while preserving intent.")
+	require.Contains(t, texts, "CreateOS internal link plan")
+	require.Contains(t, texts, "CreateOS Internal Links")
+	require.Contains(t, texts, "unified execution layer -> `/` | status: existing | placement: intro | reason: Connects to product positioning.")
 	require.Contains(t, texts, "Modern teams need AI workflows that fit how people work.")
 	require.Contains(t, texts, "Define role-specific prompts")
+}
+
+func TestMarkdownToBlocksRendersMarkdownLinksAsNotionLinks(t *testing.T) {
+	blocks := markdownToBlocks("Read the [CreateOS blog](https://createos.sh/blogs) for related execution guides.")
+
+	require.Len(t, blocks, 1)
+	require.NotNil(t, blocks[0].Paragraph)
+	require.Len(t, blocks[0].Paragraph.RichText, 3)
+	require.Equal(t, "Read the ", blocks[0].Paragraph.RichText[0].Text.Content)
+	require.Equal(t, "CreateOS blog", blocks[0].Paragraph.RichText[1].Text.Content)
+	require.NotNil(t, blocks[0].Paragraph.RichText[1].Text.Link)
+	require.Equal(t, "https://createos.sh/blogs", blocks[0].Paragraph.RichText[1].Text.Link.URL)
+	require.Equal(t, " for related execution guides.", blocks[0].Paragraph.RichText[2].Text.Content)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

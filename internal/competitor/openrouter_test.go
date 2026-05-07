@@ -40,8 +40,13 @@ func TestLLMBlogDraftOutputParsesDraftsArrayShape(t *testing.T) {
 			{
 				"route": "/use-cases/rapid-prototyping-mvp",
 				"title": "Rapid Prototyping & MVP with CreateOS",
+				"titleOptions": ["AI Coding Got Faster. Shipping Still Got Messier.", "Rapid Prototyping Still Needs an Execution Layer"],
+				"selectedTitleReason": "It uses tension while preserving the rapid prototyping intent.",
 				"metaDescription": "Build and validate MVPs faster with CreateOS.",
 				"bodyMarkdown": "# Rapid Prototyping & MVP with CreateOS\n\nDraft body.",
+				"internalLinks": [
+					{"anchorText": "unified execution layer", "targetPath": "/", "placement": "intro", "reason": "Connects the article to the product positioning.", "status": "existing"}
+				],
 				"cta": "Start building with CreateOS.",
 				"status": "ai-generated-draft"
 			}
@@ -55,6 +60,10 @@ func TestLLMBlogDraftOutputParsesDraftsArrayShape(t *testing.T) {
 	require.Len(t, out.Drafts, 1)
 	require.Equal(t, "/use-cases/rapid-prototyping-mvp", out.Drafts[0].Route)
 	require.Equal(t, "Rapid Prototyping & MVP with CreateOS", out.Drafts[0].Title)
+	require.Contains(t, out.Drafts[0].TitleOptions, "AI Coding Got Faster. Shipping Still Got Messier.")
+	require.Equal(t, "It uses tension while preserving the rapid prototyping intent.", out.Drafts[0].SelectedTitleReason)
+	require.Equal(t, "unified execution layer", out.Drafts[0].InternalLinks[0].AnchorText)
+	require.Equal(t, "/", out.Drafts[0].InternalLinks[0].TargetPath)
 	require.Contains(t, out.Drafts[0].BodyMarkdown, "Draft body")
 }
 
@@ -79,7 +88,11 @@ func TestAttachDraftsToContentRecommendationsCapsTopN(t *testing.T) {
 }
 
 func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
-	prompt := blogDraftUserPrompt([]byte(`{"recommendations":[]}`), "CreateOS is the workspace where ideas become applications.")
+	prompt := blogDraftUserPrompt(
+		[]byte(`{"recommendations":[]}`),
+		"CreateOS is the workspace where ideas become applications.",
+		"Use Naman/CreateOS voice. Ban hype phrases like revolutionary and game-changing.",
+	)
 
 	require.Contains(t, prompt, "polished blog prose")
 	require.Contains(t, prompt, "not an outline")
@@ -87,6 +100,126 @@ func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
 	require.Contains(t, prompt, "Each H2 section should have 2-4 paragraphs")
 	require.Contains(t, prompt, "Use the CreateOS context as positioning guidance")
 	require.Contains(t, prompt, "CreateOS is the workspace where ideas become applications.")
+	require.Contains(t, prompt, "Use the CreateOS writing guidelines as style and quality rules")
+	require.Contains(t, prompt, "Naman/CreateOS voice")
+	require.Contains(t, prompt, "content-repo-ready")
+	require.Contains(t, prompt, "honest tradeoffs section")
+	require.Contains(t, prompt, "Do not use em dashes")
+	require.Contains(t, prompt, "titleOptions")
+	require.Contains(t, prompt, "selectedTitleReason")
+	require.Contains(t, prompt, "problem/tension, contrarian, value, story, or authority")
+	require.Contains(t, prompt, "Avoid bland titles")
+	require.Contains(t, prompt, "internalLinks")
+	require.Contains(t, prompt, "CreateOS-only SEO internal-link plan")
+	require.Contains(t, prompt, "3-5 links to createos.sh pages")
+	require.Contains(t, prompt, "Do not create external citation plans or third-party backlink outreach ideas")
+}
+
+func TestNormalizeBlogDraftsKeepsTitleOptions(t *testing.T) {
+	drafts := normalizeBlogDrafts([]BlogDraft{
+		{
+			Route:               "/blogs/context-switching",
+			Title:               "AI Coding Got Faster. Shipping Still Got Messier.",
+			TitleOptions:        []string{"AI Coding Got Faster. Shipping Still Got Messier.", "", "Why Context Switching Still Slows Builders Down", "AI Coding Got Faster. Shipping Still Got Messier."},
+			SelectedTitleReason: "The title creates tension and keeps the execution angle.",
+			BodyMarkdown:        "# Draft\n\nBody.",
+			InternalLinks: []SEOLinkSuggestion{
+				{AnchorText: "CreateOS services", TargetPath: "/services", Status: "existing"},
+				{AnchorText: "", TargetPath: "/blogs", Status: "existing"},
+			},
+		},
+	}, 1)
+
+	require.Len(t, drafts, 1)
+	require.Equal(t, []string{"AI Coding Got Faster. Shipping Still Got Messier.", "Why Context Switching Still Slows Builders Down"}, drafts[0].TitleOptions)
+	require.Equal(t, "The title creates tension and keeps the execution angle.", drafts[0].SelectedTitleReason)
+	require.Len(t, drafts[0].InternalLinks, 1)
+	require.Equal(t, "existing", drafts[0].InternalLinks[0].Status)
+}
+
+func TestNormalizeBlogDraftsEmbedsExistingInternalLinksInBody(t *testing.T) {
+	drafts := normalizeBlogDrafts([]BlogDraft{
+		{
+			Route:        "/use-cases/rapid-prototyping-mvp",
+			Title:        "From Sketch to Shipped",
+			BodyMarkdown: "# From Sketch to Shipped\n\nCreateOS gives builders one execution layer for moving from idea to deployed product.",
+			InternalLinks: []SEOLinkSuggestion{
+				{AnchorText: "execution layer", TargetPath: "/", Status: "existing"},
+				{AnchorText: "CreateOS Marketplace", TargetPath: "/marketplace", Status: "planned"},
+				{AnchorText: "case studies", TargetPath: "/case-studies", Status: "existing"},
+			},
+		},
+	}, 1)
+
+	require.Len(t, drafts, 1)
+	require.Contains(t, drafts[0].BodyMarkdown, "[execution layer](https://createos.sh/)")
+	require.Contains(t, drafts[0].BodyMarkdown, "[case studies](https://createos.sh/case-studies)")
+	require.NotContains(t, drafts[0].BodyMarkdown, "https://createos.sh/marketplace")
+}
+
+func TestDraftPromptInputIncludesRelevantCreateOSInternalLinkCandidates(t *testing.T) {
+	recommendations := []ContentRecommendation{
+		{
+			SuggestedSlug:  "/use-cases/rapid-prototyping-mvp",
+			SuggestedTitle: "Rapid Prototyping & MVP",
+			Theme:          "vibecoding",
+			ContentAngle:   "Move from idea to shipped MVP without tool sprawl.",
+		},
+	}
+	inventory := []InternalLinkCandidate{
+		{URL: "https://createos.sh/blogs/solo-founder-workflow-context-switching", Path: "/blogs/solo-founder-workflow-context-switching", Title: "Solo founder workflow context switching", PageType: "blog", Category: "developer-productivity-tool-sprawl", Score: 97},
+		{URL: "https://createos.sh/blogs/nodeops-network-mint-and-burn-strategies", Path: "/blogs/nodeops-network-mint-and-burn-strategies", Title: "NodeOps mint and burn strategies", PageType: "blog", Category: "penalized-nodeops-web3", Score: 18},
+		{URL: "https://createos.sh/case-studies/justref", Path: "/case-studies/justref", Title: "JustRef", PageType: "case-study", Category: "case-study", Score: 65},
+	}
+
+	input := draftPromptInput(recommendations, 1, inventory)
+
+	require.Len(t, input, 1)
+	require.Equal(t, "/blogs/solo-founder-workflow-context-switching", input[0].InternalLinkCandidates[0].Path)
+	require.Equal(t, "/case-studies/justref", input[0].InternalLinkCandidates[1].Path)
+	require.NotContains(t, internalLinkCandidatePaths(input[0].InternalLinkCandidates), "/blogs/nodeops-network-mint-and-burn-strategies")
+}
+
+func TestBuildInternalLinkInventoryScoresCreateOSSitemapCategories(t *testing.T) {
+	entries := []rawSitemapEntry{
+		{URL: "https://createos.sh/"},
+		{URL: "https://createos.sh/blogs/solo-founder-workflow-context-switching"},
+		{URL: "https://createos.sh/blogs/deploy-an-api-in-2-minutes-with-createos-cli"},
+		{URL: "https://createos.sh/blogs/staking-pol-with-nodeops-staking-hub"},
+		{URL: "https://createos.sh/case-studies/justref"},
+	}
+	recommendations := []ContentRecommendation{
+		{SuggestedTitle: "Rapid Prototyping & MVP", Theme: "vibecoding", ContentAngle: "solo founder workflow from idea to deployment"},
+	}
+
+	inventory := buildCreateOSInternalLinkInventory(entries, recommendations)
+
+	require.NotEmpty(t, inventory)
+	require.Equal(t, "https://createos.sh/blogs/solo-founder-workflow-context-switching", inventory[0].URL)
+	require.Greater(t, findInternalLinkCandidate(t, inventory, "/blogs/solo-founder-workflow-context-switching").Score, findInternalLinkCandidate(t, inventory, "/blogs/staking-pol-with-nodeops-staking-hub").Score)
+	require.Equal(t, "developer-productivity-tool-sprawl", findInternalLinkCandidate(t, inventory, "/blogs/solo-founder-workflow-context-switching").Category)
+	require.Equal(t, "deployment-cli-devops", findInternalLinkCandidate(t, inventory, "/blogs/deploy-an-api-in-2-minutes-with-createos-cli").Category)
+	require.Equal(t, "penalized-nodeops-web3", findInternalLinkCandidate(t, inventory, "/blogs/staking-pol-with-nodeops-staking-hub").Category)
+	require.Equal(t, "case-study", findInternalLinkCandidate(t, inventory, "/case-studies/justref").PageType)
+}
+
+func findInternalLinkCandidate(t *testing.T, inventory []InternalLinkCandidate, path string) InternalLinkCandidate {
+	t.Helper()
+	for _, candidate := range inventory {
+		if candidate.Path == path {
+			return candidate
+		}
+	}
+	require.FailNowf(t, "missing internal link candidate", "path=%s", path)
+	return InternalLinkCandidate{}
+}
+
+func internalLinkCandidatePaths(inventory []InternalLinkCandidate) []string {
+	out := make([]string, 0, len(inventory))
+	for _, candidate := range inventory {
+		out = append(out, candidate.Path)
+	}
+	return out
 }
 
 func TestBuildTopicPromptInputUsesTitlesAndCapsLimit(t *testing.T) {
