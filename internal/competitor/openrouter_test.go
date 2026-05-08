@@ -123,8 +123,33 @@ func TestBlogDraftBriefPromptRequestsSmallJSONOnly(t *testing.T) {
 	require.Contains(t, prompt, "titleOptions")
 	require.Contains(t, prompt, "selectedTitleReason")
 	require.Contains(t, prompt, "internalLinks")
-	require.Contains(t, prompt, "status=existing only for URLs provided in internalLinkCandidates")
+	require.Contains(t, prompt, "Every internalLinks targetPath must exactly match a path from internalLinkCandidates")
+	require.Contains(t, prompt, "Use status=existing for every internal link")
+	require.Contains(t, prompt, "Do not create planned links")
+	require.Contains(t, prompt, "Do not invent future routes")
 	require.Contains(t, prompt, "JSON only")
+}
+
+func TestNormalizeBlogDraftBriefKeepsOnlyCandidateLinks(t *testing.T) {
+	item := blogDraftPromptItem{
+		InternalLinkCandidates: []InternalLinkCandidate{
+			{Path: "/blogs/createos-single-intelligent-workspace", URL: "https://createos.sh/blogs/createos-single-intelligent-workspace"},
+		},
+	}
+	draft := BlogDraft{
+		Route: "/use-cases/rapid-prototyping-mvp",
+		Title: "From Idea to Working MVP",
+		InternalLinks: []SEOLinkSuggestion{
+			{AnchorText: "single intelligent workspace", TargetPath: "/blogs/createos-single-intelligent-workspace", Status: "existing"},
+			{AnchorText: "marketplace distribution", TargetPath: "/use-cases/monetize-applications", Status: "planned"},
+		},
+	}
+
+	normalized := normalizeBlogDraftBriefForItem(draft, item)
+
+	require.Len(t, normalized.InternalLinks, 1)
+	require.Equal(t, "/blogs/createos-single-intelligent-workspace", normalized.InternalLinks[0].TargetPath)
+	require.Equal(t, "existing", normalized.InternalLinks[0].Status)
 }
 
 func TestNormalizeBlogDraftsKeepsTitleOptions(t *testing.T) {
@@ -185,6 +210,24 @@ func TestNormalizeBlogDraftsDoesNotDoubleWrapExistingMarkdownLinks(t *testing.T)
 	require.Contains(t, drafts[0].BodyMarkdown, "[container security posture](/blogs/container-security-on-nodeops-network-compute)")
 	require.NotContains(t, drafts[0].BodyMarkdown, "[[container security posture]")
 	require.NotContains(t, drafts[0].BodyMarkdown, ")](/blogs/container-security-on-nodeops-network-compute)")
+}
+
+func TestNormalizeBlogDraftsStripsUnapprovedMarkdownLinks(t *testing.T) {
+	drafts := normalizeBlogDrafts([]BlogDraft{
+		{
+			Route:        "/use-cases/rapid-prototyping-mvp",
+			Title:        "From Idea to Working MVP",
+			BodyMarkdown: "Explore [marketplace distribution](/use-cases/monetize-applications) after launch and [single intelligent workspace](/blogs/createos-single-intelligent-workspace).",
+			InternalLinks: []SEOLinkSuggestion{
+				{AnchorText: "single intelligent workspace", TargetPath: "/blogs/createos-single-intelligent-workspace", Status: "existing"},
+			},
+		},
+	}, 1)
+
+	require.Len(t, drafts, 1)
+	require.Contains(t, drafts[0].BodyMarkdown, "marketplace distribution")
+	require.NotContains(t, drafts[0].BodyMarkdown, "](/use-cases/monetize-applications)")
+	require.Contains(t, drafts[0].BodyMarkdown, "[single intelligent workspace](/blogs/createos-single-intelligent-workspace)")
 }
 
 func TestDraftPromptInputIncludesRelevantCreateOSInternalLinkCandidates(t *testing.T) {

@@ -350,7 +350,7 @@ func generateBlogDraftBrief(ctx context.Context, apiKey string, models []string,
 	if len(briefs) == 0 {
 		return BlogDraft{}, fmt.Errorf("openrouter blog draft brief returned zero usable drafts")
 	}
-	return briefs[0], nil
+	return normalizeBlogDraftBriefForItem(briefs[0], item), nil
 }
 
 func generateBlogDraftBody(ctx context.Context, apiKey string, models []string, item blogDraftPromptItem, brief BlogDraft, createOSContext string, writingGuidelines string, timeoutSecs int) (string, error) {
@@ -495,7 +495,7 @@ func blogDraftBriefUserPrompt(inputBytes []byte, createOSContext string, writing
 	if strings.TrimSpace(writingGuidelines) != "" {
 		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
 	}
-	return "Create a small SEO brief for each recommendation. Do not generate bodyMarkdown. Each draft object must include route, title, titleOptions, selectedTitleReason, metaDescription, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely strongest. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Use status=existing only for URLs provided in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when relevant. Use status=planned only for recommended or cluster pages that may not exist yet. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype, clickbait, unsupported numeric claims, generic AI wording, and unsupported product claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
+	return "Create a small SEO brief for each recommendation. Do not generate bodyMarkdown. Each draft object must include route, title, titleOptions, selectedTitleReason, metaDescription, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely strongest. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Every internalLinks targetPath must exactly match a path from internalLinkCandidates. Use status=existing for every internal link. Do not create planned links. Do not invent future routes, cluster routes, or links not present in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when relevant. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype, clickbait, unsupported numeric claims, generic AI wording, and unsupported product claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
 }
 
 func blogDraftBodyUserPrompt(item blogDraftPromptItem, brief BlogDraft, briefBytes []byte, createOSContext string, writingGuidelines string) string {
@@ -508,7 +508,7 @@ func blogDraftBodyUserPrompt(item blogDraftPromptItem, brief BlogDraft, briefByt
 		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
 	}
 	itemBytes, _ := json.Marshal(item)
-	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list. Each H2 section should have 2-4 paragraphs. Include an H1 matching the selected title, intro, 4-6 H2 sections, an honest tradeoffs section, and a closing CTA. Make it content-repo-ready publication markdown. Naturally include the selected existing CreateOS internal links from the brief as markdown links where relevant. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype/corporate language, generic AI tells, placeholder points, and unsupported absolute claims. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
+	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list. Each H2 section should have 2-4 paragraphs. Include an H1 matching the selected title, intro, 4-6 H2 sections, an honest tradeoffs section, and a closing CTA. Make it content-repo-ready publication markdown. Naturally include only the selected existing CreateOS internal links from the brief as markdown links where relevant. Do not add markdown links that are not present in the brief. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype/corporate language, generic AI tells, placeholder points, and unsupported absolute claims. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
 }
 
 type blogDraftPromptItem struct {
@@ -580,6 +580,26 @@ func normalizeBlogDraftsAllowEmptyBody(drafts []BlogDraft, limit int) []BlogDraf
 	return out
 }
 
+func normalizeBlogDraftBriefForItem(draft BlogDraft, item blogDraftPromptItem) BlogDraft {
+	allowed := allowedInternalLinkPaths(item.InternalLinkCandidates)
+	links := normalizeSEOLinkSuggestions(draft.InternalLinks, 8)
+	filtered := make([]SEOLinkSuggestion, 0, len(links))
+	for _, link := range links {
+		target := normalizeLinkTargetPath(link.TargetPath)
+		if _, ok := allowed[target]; !ok {
+			continue
+		}
+		link.TargetPath = target
+		link.Status = "existing"
+		filtered = append(filtered, link)
+		if len(filtered) == 5 {
+			break
+		}
+	}
+	draft.InternalLinks = filtered
+	return draft
+}
+
 func normalizeBlogDrafts(drafts []BlogDraft, limit int) []BlogDraft {
 	out := make([]BlogDraft, 0, min(len(drafts), limit))
 	for _, draft := range drafts {
@@ -597,6 +617,7 @@ func normalizeBlogDrafts(drafts []BlogDraft, limit int) []BlogDraft {
 			status = "ai-generated-draft"
 		}
 		internalLinks := normalizeSEOLinkSuggestions(draft.InternalLinks, 5)
+		body = stripUnapprovedMarkdownLinks(body, allowedInternalLinkPathsFromSuggestions(internalLinks))
 		out = append(out, BlogDraft{
 			Route:               route,
 			Title:               title,
@@ -610,6 +631,91 @@ func normalizeBlogDrafts(drafts []BlogDraft, limit int) []BlogDraft {
 		})
 	}
 	return out
+}
+
+func stripUnapprovedMarkdownLinks(body string, allowed map[string]struct{}) string {
+	if !strings.Contains(body, "](") {
+		return body
+	}
+	var out strings.Builder
+	remaining := body
+	for {
+		open := strings.Index(remaining, "[")
+		if open == -1 {
+			out.WriteString(remaining)
+			break
+		}
+		close := strings.Index(remaining[open:], "](")
+		if close == -1 {
+			out.WriteString(remaining)
+			break
+		}
+		close += open
+		urlStart := close + len("](")
+		urlEndRel := strings.Index(remaining[urlStart:], ")")
+		if urlEndRel == -1 {
+			out.WriteString(remaining)
+			break
+		}
+		urlEnd := urlStart + urlEndRel
+		label := remaining[open+1 : close]
+		target := normalizeLinkTargetPath(remaining[urlStart:urlEnd])
+		out.WriteString(remaining[:open])
+		if _, ok := allowed[target]; ok {
+			out.WriteString("[")
+			out.WriteString(label)
+			out.WriteString("](")
+			out.WriteString(remaining[urlStart:urlEnd])
+			out.WriteString(")")
+		} else {
+			out.WriteString(label)
+		}
+		remaining = remaining[urlEnd+1:]
+	}
+	return out.String()
+}
+
+func allowedInternalLinkPaths(candidates []InternalLinkCandidate) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		path := normalizeLinkTargetPath(candidate.Path)
+		if path != "" {
+			allowed[path] = struct{}{}
+		}
+		path = normalizeLinkTargetPath(candidate.URL)
+		if path != "" {
+			allowed[path] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func allowedInternalLinkPathsFromSuggestions(suggestions []SEOLinkSuggestion) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(suggestions))
+	for _, suggestion := range suggestions {
+		if strings.ToLower(strings.TrimSpace(suggestion.Status)) != "existing" {
+			continue
+		}
+		path := normalizeLinkTargetPath(suggestion.TargetPath)
+		if path != "" {
+			allowed[path] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func normalizeLinkTargetPath(raw string) string {
+	target := strings.TrimSpace(raw)
+	if target == "" {
+		return ""
+	}
+	if strings.HasPrefix(target, "https://createos.sh") {
+		target = strings.TrimPrefix(target, "https://createos.sh")
+	}
+	if !strings.HasPrefix(target, "/") {
+		target = "/" + target
+	}
+	return strings.TrimRight(target, "/")
 }
 
 func embedExistingInternalLinks(body string, links []SEOLinkSuggestion) string {
@@ -685,15 +791,15 @@ func normalizeSEOLinkSuggestions(suggestions []SEOLinkSuggestion, limit int) []S
 			continue
 		}
 		status := strings.ToLower(strings.TrimSpace(suggestion.Status))
-		if status != "existing" && status != "planned" {
-			status = ""
+		if status != "existing" {
+			continue
 		}
 		out = append(out, SEOLinkSuggestion{
 			AnchorText: anchor,
 			TargetPath: target,
 			Placement:  strings.TrimSpace(suggestion.Placement),
 			Reason:     strings.TrimSpace(suggestion.Reason),
-			Status:     status,
+			Status:     "existing",
 		})
 	}
 	return out
