@@ -178,7 +178,7 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, "NodeOps-app/createos-content", cfg.ContentRepo)
 	require.Equal(t, "main", cfg.ContentBaseBranch)
 	require.Equal(t, "CreateOS", cfg.ContentAuthor)
-	require.Equal(t, "vaibhav0806", cfg.ContentReviewer)
+	require.Equal(t, "navedux", cfg.ContentReviewer)
 	require.NotEmpty(t, cfg.ContentCoverURL)
 }
 

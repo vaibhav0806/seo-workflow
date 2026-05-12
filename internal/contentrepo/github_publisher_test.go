@@ -53,7 +53,7 @@ func TestGitHubPublisherPublishesBlogPR(t *testing.T) {
 	githubAPIBase = server.URL
 	defer func() { githubAPIBase = oldBase }()
 
-	publisher := NewGitHubPublisher("ghp_test", "NodeOps-app/createos-content", "main", "vaibhav0806")
+	publisher := NewGitHubPublisher("ghp_test", "NodeOps-app/createos-content", "main", "navedux")
 	publisher.httpClient = server.Client()
 	result, err := publisher.Publish(context.Background(), BlogPost{
 		Title:        "Test Post",
@@ -83,6 +83,7 @@ func TestGitHubPublisherPublishesBlogPR(t *testing.T) {
 		}
 	}
 	require.Equal(t, "add blog: test-post", putBody["message"])
-	require.Contains(t, prBody["body"], "@vaibhav0806 please review and take the next action on Multica.")
+	require.Contains(t, prBody["body"], "@navedux please create the cover image for this blog and take the next action on Multica.")
+	require.Contains(t, prBody["body"], "Add or replace the cover image before merge.")
 	require.Contains(t, prBody["body"], "`blogs/test-post.md`")
 }
