@@ -63,8 +63,8 @@ func main() {
 		if reportErr := writeCompetitorReport(cfg, summary); reportErr != nil {
 			log.Fatalf("failed to write competitor report: %v", reportErr)
 		}
-		if reportErr := writeCompetitorNotionReport(context.Background(), cfg, summary); reportErr != nil {
-			log.Fatalf("failed to write competitor notion report: %v", reportErr)
+		if reportErr := writeCompetitorContentPullRequest(context.Background(), cfg, summary); reportErr != nil {
+			log.Fatalf("failed to create competitor content pull request: %v", reportErr)
 		}
 		log.Printf("competitor oneshot complete")
 		return

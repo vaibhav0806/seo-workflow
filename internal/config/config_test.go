@@ -175,6 +175,11 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, 180, cfg.OpenRouterTopicTimeoutSecs)
 	require.Equal(t, 240, cfg.OpenRouterDraftTimeoutSecs)
 	require.Equal(t, 1, cfg.CompetitorContentDraftLimit)
+	require.Equal(t, "NodeOps-app/createos-content", cfg.ContentRepo)
+	require.Equal(t, "main", cfg.ContentBaseBranch)
+	require.Equal(t, "CreateOS", cfg.ContentAuthor)
+	require.Equal(t, "vaibhav0806", cfg.ContentReviewer)
+	require.NotEmpty(t, cfg.ContentCoverURL)
 }
 
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
@@ -192,6 +197,12 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("COMPETITOR_CONTENT_DRAFT_LIMIT", "1")
 	t.Setenv("NOTION_API_KEY", "ntn_test")
 	t.Setenv("NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID", "1234567890abcdef1234567890abcdef")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("CONTENT_REPO", "NodeOps-app/createos-content-test")
+	t.Setenv("CONTENT_BASE_BRANCH", "develop")
+	t.Setenv("CONTENT_AUTHOR", "NodeOps")
+	t.Setenv("CONTENT_REVIEWER_GITHUB_HANDLE", "vaibhav")
+	t.Setenv("CONTENT_DEFAULT_COVER_URL", "https://example.com/cover.png")
 
 	cfg, err := Load()
 
@@ -210,6 +221,12 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, 1, cfg.CompetitorContentDraftLimit)
 	require.Equal(t, "ntn_test", cfg.NotionAPIKey)
 	require.Equal(t, "1234567890abcdef1234567890abcdef", cfg.NotionCompetitorReportParentPageID)
+	require.Equal(t, "ghp_test", cfg.GitHubToken)
+	require.Equal(t, "NodeOps-app/createos-content-test", cfg.ContentRepo)
+	require.Equal(t, "develop", cfg.ContentBaseBranch)
+	require.Equal(t, "NodeOps", cfg.ContentAuthor)
+	require.Equal(t, "vaibhav", cfg.ContentReviewer)
+	require.Equal(t, "https://example.com/cover.png", cfg.ContentCoverURL)
 }
 
 func TestLoadCompetitorModeMissingRequiredEnv(t *testing.T) {

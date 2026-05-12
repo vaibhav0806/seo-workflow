@@ -16,6 +16,11 @@ const (
 	defaultRowLimit               = 1000
 	defaultHTTPTimeoutSecs        = 30
 	defaultSitemapPath            = "public/sitemap.xml"
+	defaultContentRepo            = "NodeOps-app/createos-content"
+	defaultContentBaseBranch      = "main"
+	defaultContentAuthor          = "CreateOS"
+	defaultContentReviewer        = "vaibhav0806"
+	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
 	defaultWindowDays             = 30
 	defaultCompetitorDraftLimit   = 1
@@ -60,6 +65,11 @@ type Config struct {
 	CompetitorContentDraftLimit        int
 	NotionAPIKey                       string
 	NotionCompetitorReportParentPageID string
+	ContentRepo                        string
+	ContentBaseBranch                  string
+	ContentAuthor                      string
+	ContentReviewer                    string
+	ContentCoverURL                    string
 }
 
 func Load() (*Config, error) {
@@ -83,6 +93,11 @@ func Load() (*Config, error) {
 		RowLimit:                    defaultRowLimit,
 		HTTPTimeoutSecs:             defaultHTTPTimeoutSecs,
 		OpenRouterModel:             defaultCompetitorModel,
+		ContentRepo:                 defaultContentRepo,
+		ContentBaseBranch:           defaultContentBaseBranch,
+		ContentAuthor:               defaultContentAuthor,
+		ContentReviewer:             defaultContentReviewer,
+		ContentCoverURL:             defaultContentCoverURL,
 		CompetitorWindowDays:        defaultWindowDays,
 		OpenRouterTopicTimeoutSecs:  defaultOpenRouterTopicTimeout,
 		OpenRouterDraftTimeoutSecs:  defaultOpenRouterDraftTimeout,
@@ -187,8 +202,24 @@ func Load() (*Config, error) {
 		cfg.OurSitemapURL = strings.TrimSpace(os.Getenv("OUR_SITEMAP_URL"))
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
 		cfg.OpenRouterAPIKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+		cfg.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 		cfg.NotionAPIKey = strings.TrimSpace(os.Getenv("NOTION_API_KEY"))
 		cfg.NotionCompetitorReportParentPageID = strings.TrimSpace(os.Getenv("NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID"))
+		if contentRepo := strings.TrimSpace(os.Getenv("CONTENT_REPO")); contentRepo != "" {
+			cfg.ContentRepo = contentRepo
+		}
+		if contentBaseBranch := strings.TrimSpace(os.Getenv("CONTENT_BASE_BRANCH")); contentBaseBranch != "" {
+			cfg.ContentBaseBranch = contentBaseBranch
+		}
+		if contentAuthor := strings.TrimSpace(os.Getenv("CONTENT_AUTHOR")); contentAuthor != "" {
+			cfg.ContentAuthor = contentAuthor
+		}
+		if contentReviewer := strings.TrimSpace(os.Getenv("CONTENT_REVIEWER_GITHUB_HANDLE")); contentReviewer != "" {
+			cfg.ContentReviewer = contentReviewer
+		}
+		if contentCoverURL := strings.TrimSpace(os.Getenv("CONTENT_DEFAULT_COVER_URL")); contentCoverURL != "" {
+			cfg.ContentCoverURL = contentCoverURL
+		}
 		if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
 			cfg.OpenRouterModel = model
 		}
