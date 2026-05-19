@@ -145,12 +145,43 @@ func decodeDataURL(dataURL string) (string, []byte, error) {
 func coverPrompt(post BlogPost) string {
 	return strings.Join([]string{
 		"Create a 1200x630 editorial blog cover image for CreateOS.",
-		"Visual direction: unified intelligent workspace, ideas moving from concept to deployed application, execution layer, clean product-led SaaS aesthetic.",
-		"Do not include readable text, logos, UI screenshots, robots, generic circuit brains, or stock-photo people.",
-		"Use a distinctive but professional composition suitable for a technical startup blog.",
+		"",
+		"Use the established CreateOS blog visual style: a bright surreal 3D landscape with soft pastel terrain, clear water, cloudy sky, distant white mountains, moss, vines, flowers, and glassy futuristic technology objects. The image should feel magical, optimistic, premium, and product-led. Blend organic nature with advanced software infrastructure.",
+		"",
+		"Visual language: soft lavender, coral, white, sky blue, fresh green, subtle cyan glow, frosted glass, translucent panels, rounded futuristic devices, floating paths, connected nodes, moss-covered tech, gentle sunlight, cinematic depth of field.",
+		"",
+		"Core metaphor: CreateOS is the workspace where ideas move from concept to live application. Show fragmented inputs becoming one coherent execution layer.",
+		"",
+		"Article-specific metaphor: " + coverMetaphor(post),
+		"",
+		"Composition: wide 16:9 hero image, central iconic object, readable at thumbnail size, generous negative space, no clutter, no readable text.",
+		"",
+		"Avoid: humans, realistic office scenes, dark cyberpunk, generic SaaS dashboards, robots, AI brains, crypto coins, logos, readable text, random UI screenshots, harsh neon, stock-photo style.",
 		"Article title: " + post.Title,
 		"Description: " + post.Description,
 	}, "\n")
+}
+
+func coverMetaphor(post BlogPost) string {
+	text := strings.ToLower(strings.Join(append([]string{post.Title, post.Description}, post.Tags...), " "))
+	switch {
+	case strings.Contains(text, "security") || strings.Contains(text, "governance") || strings.Contains(text, "compliance"):
+		return "show moss-covered policy gates, guarded glass paths, protected workflow layers, and soft shield-like geometry."
+	case strings.Contains(text, "prototype") || strings.Contains(text, "mvp") || strings.Contains(text, "vibe") || strings.Contains(text, "ship"):
+		return "show sketch-like light trails transforming into a polished app object across a pastel landscape."
+	case strings.Contains(text, "comparison") || strings.Contains(text, "alternative") || strings.Contains(text, "benchmark") || strings.Contains(text, "vs"):
+		return "show two or three winding paths through the landscape converging into one clear glass execution route."
+	case strings.Contains(text, "enterprise") || strings.Contains(text, "team") || strings.Contains(text, "organization"):
+		return "show multiple floating workspace islands connected into one coordinated central execution layer."
+	case strings.Contains(text, "integration") || strings.Contains(text, "ecosystem") || strings.Contains(text, "partner"):
+		return "show glass tool modules connected by glowing vines and cables into one moss-covered hub."
+	case strings.Contains(text, "agent") || strings.Contains(text, "workflow") || strings.Contains(text, "automation"):
+		return "show small autonomous glowing path markers moving between floating task nodes, without robots."
+	case strings.Contains(text, "context") || strings.Contains(text, "switching") || strings.Contains(text, "fragment"):
+		return "show scattered tools half-buried in soft terrain, connected into one central terminal or workspace object."
+	default:
+		return "show layered workspace panels, connected nodes, and app-like glass objects flowing into one clear execution path."
+	}
 }
 
 func extensionForMime(mimeType string) string {
