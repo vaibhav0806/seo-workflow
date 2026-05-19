@@ -42,7 +42,11 @@ func TestGitHubPublisherPublishesBlogPR(t *testing.T) {
 		case r.Method == http.MethodPut && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/test-post.md":
 			_, _ = w.Write([]byte(`{}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
-			_, _ = w.Write([]byte(`{"html_url":"https://github.com/NodeOps-app/createos-content/pull/1"}`))
+			_, _ = w.Write([]byte(`{"html_url":"https://github.com/NodeOps-app/createos-content/pull/1","number":1}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/issues/1/assignees":
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls/1/requested_reviewers":
+			_, _ = w.Write([]byte(`{}`))
 		default:
 			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusTeapot)
 		}
@@ -83,7 +87,20 @@ func TestGitHubPublisherPublishesBlogPR(t *testing.T) {
 		}
 	}
 	require.Equal(t, "add blog: test-post", putBody["message"])
-	require.Contains(t, prBody["body"], "@navedux please create the cover image for this blog and take the next action on Multica.")
-	require.Contains(t, prBody["body"], "Add or replace the cover image before merge.")
+	require.Contains(t, prBody["body"], "@navedux please review this generated CreateOS blog")
+	require.Contains(t, prBody["body"], "Validate the generated cover image before merge.")
 	require.Contains(t, prBody["body"], "`blogs/test-post.md`")
+
+	var assigneeBody map[string]any
+	var reviewerBody map[string]any
+	for _, request := range requests {
+		switch {
+		case request.Method == http.MethodPost && strings.HasSuffix(request.Path, "/issues/1/assignees"):
+			assigneeBody = request.Body
+		case request.Method == http.MethodPost && strings.HasSuffix(request.Path, "/pulls/1/requested_reviewers"):
+			reviewerBody = request.Body
+		}
+	}
+	require.Equal(t, []any{"navedux"}, assigneeBody["assignees"])
+	require.Equal(t, []any{"navedux"}, reviewerBody["reviewers"])
 }

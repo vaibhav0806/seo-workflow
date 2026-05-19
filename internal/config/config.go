@@ -19,8 +19,9 @@ const (
 	defaultContentRepo            = "NodeOps-app/createos-content"
 	defaultContentBaseBranch      = "main"
 	defaultContentAuthor          = "CreateOS"
-	defaultContentReviewer        = "navedux"
+	defaultContentReviewer        = "navedux,vaibhav0806"
 	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
+	defaultOpenRouterCoverModel   = "google/gemini-2.5-flash-image"
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
 	defaultWindowDays             = 30
 	defaultCompetitorDraftLimit   = 1
@@ -70,6 +71,8 @@ type Config struct {
 	ContentAuthor                      string
 	ContentReviewer                    string
 	ContentCoverURL                    string
+	ContentCoverAssetBaseURL           string
+	OpenRouterCoverModel               string
 }
 
 func Load() (*Config, error) {
@@ -98,6 +101,7 @@ func Load() (*Config, error) {
 		ContentAuthor:               defaultContentAuthor,
 		ContentReviewer:             defaultContentReviewer,
 		ContentCoverURL:             defaultContentCoverURL,
+		OpenRouterCoverModel:        defaultOpenRouterCoverModel,
 		CompetitorWindowDays:        defaultWindowDays,
 		OpenRouterTopicTimeoutSecs:  defaultOpenRouterTopicTimeout,
 		OpenRouterDraftTimeoutSecs:  defaultOpenRouterDraftTimeout,
@@ -219,6 +223,10 @@ func Load() (*Config, error) {
 		}
 		if contentCoverURL := strings.TrimSpace(os.Getenv("CONTENT_DEFAULT_COVER_URL")); contentCoverURL != "" {
 			cfg.ContentCoverURL = contentCoverURL
+		}
+		cfg.ContentCoverAssetBaseURL = strings.TrimSpace(os.Getenv("CONTENT_COVER_ASSET_BASE_URL"))
+		if coverModel := strings.TrimSpace(os.Getenv("OPENROUTER_COVER_MODEL")); coverModel != "" {
+			cfg.OpenRouterCoverModel = coverModel
 		}
 		if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
 			cfg.OpenRouterModel = model
