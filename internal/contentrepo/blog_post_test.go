@@ -36,7 +36,7 @@ func TestBuildBlogPostUsesContentRepoFrontmatterContract(t *testing.T) {
 	require.Contains(t, markdown, `author: "CreateOS"`)
 	require.Contains(t, markdown, `cover: "https://example.com/cover.png"`)
 	require.Contains(t, markdown, `published_at: "2026-05-12T08:30:01.000Z"`)
-	require.Contains(t, markdown, "destination: both")
+	require.Contains(t, markdown, "destination: createos")
 	require.Contains(t, markdown, "# From Idea to Working MVP")
 }
 

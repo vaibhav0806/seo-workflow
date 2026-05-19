@@ -59,6 +59,8 @@ if [[ "$WORKER_MODE" == "oneshot-competitor" ]]; then
   prompt_secret OPENROUTER_API_KEY "OpenRouter API key (optional; press Enter to leave empty)"
   prompt_default OPENROUTER_MODEL "OpenRouter model" "moonshotai/kimi-k2"
   prompt_default OPENROUTER_DRAFT_MODEL "OpenRouter draft-writing model (optional)" "$OPENROUTER_MODEL"
+  prompt_default OPENROUTER_COVER_MODEL "OpenRouter cover image model" "google/gemini-2.5-flash-image"
+  prompt_default CONTENT_COVER_ASSET_BASE_URL "Public base URL for generated cover assets (optional)" ""
   prompt_secret NOTION_API_KEY "Notion API key (optional; press Enter to leave empty)"
   prompt_default NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID "Notion report parent page ID (optional)" ""
 
@@ -71,6 +73,8 @@ COMPETITOR_REPORT_PATH=$COMPETITOR_REPORT_PATH
 OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
 OPENROUTER_MODEL=$OPENROUTER_MODEL
 OPENROUTER_DRAFT_MODEL=${OPENROUTER_DRAFT_MODEL:-}
+OPENROUTER_COVER_MODEL=${OPENROUTER_COVER_MODEL:-}
+CONTENT_COVER_ASSET_BASE_URL=${CONTENT_COVER_ASSET_BASE_URL:-}
 NOTION_API_KEY=${NOTION_API_KEY:-}
 NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID=${NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID:-}
 ENV

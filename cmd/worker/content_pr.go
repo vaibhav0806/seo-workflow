@@ -30,13 +30,27 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 	if err != nil {
 		return err
 	}
+	coverAssets := []contentrepo.CoverAsset{}
+	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" && strings.TrimSpace(cfg.OpenRouterCoverModel) != "" {
+		cover, coverErr := contentrepo.GenerateOpenRouterCover(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterCoverModel, post, cfg.ContentCoverAssetBaseURL)
+		if coverErr != nil {
+			log.Printf("competitor cover image generation skipped: %v", coverErr)
+		} else if strings.TrimSpace(cover.URL) != "" {
+			post.Cover = cover.URL
+			coverAssets = append(coverAssets, cover.Asset)
+			log.Printf("competitor cover image generated: path=%q url=%q", cover.Asset.Path, cover.URL)
+		}
+	}
 
 	publisher := contentrepo.NewGitHubPublisher(cfg.GitHubToken, cfg.ContentRepo, cfg.ContentBaseBranch, cfg.ContentReviewer)
-	result, err := publisher.Publish(ctx, post, cfg.CompetitorReportPath)
+	result, err := publisher.Publish(ctx, post, cfg.CompetitorReportPath, coverAssets...)
 	if err != nil {
 		return err
 	}
 	log.Printf("competitor content pull request created: url=%q branch=%q file=%q", result.PullRequestURL, result.Branch, result.FilePath)
+	for _, warning := range result.Warnings {
+		log.Printf("competitor content pull request warning: %s", warning)
+	}
 	return nil
 }
 

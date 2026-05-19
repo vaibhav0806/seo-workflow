@@ -9,7 +9,7 @@ import (
 	"github.com/nodeops/seo-workflow/internal/competitor"
 )
 
-const DestinationBoth = "both"
+const DestinationCreateOS = "createos"
 
 var nonSlugChars = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -81,7 +81,7 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 		Tags:         tags,
 		Cover:        coverURL,
 		PublishedAt:  generatedAt.UTC(),
-		Destination:  DestinationBoth,
+		Destination:  DestinationCreateOS,
 		BodyMarkdown: body,
 	}, nil
 }
