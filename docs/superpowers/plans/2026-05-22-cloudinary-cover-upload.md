@@ -56,6 +56,7 @@ func TestCloudinaryCoverUploaderUploadsImageAndReturnsSecureURL(t *testing.T) {
 	var capturedAuth string
 	var capturedFields map[string]string
 	var capturedFile []byte
+	var capturedFileContentType string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
@@ -75,6 +76,7 @@ func TestCloudinaryCoverUploaderUploadsImageAndReturnsSecureURL(t *testing.T) {
 			require.NoError(t, err)
 			if part.FormName() == "file" {
 				capturedFile = body
+				capturedFileContentType = part.Header.Get("Content-Type")
 				continue
 			}
 			capturedFields[part.FormName()] = string(body)
@@ -108,10 +110,11 @@ func TestCloudinaryCoverUploaderUploadsImageAndReturnsSecureURL(t *testing.T) {
 	require.Equal(t, int64(7), result.Bytes)
 	require.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("api-key:api-secret")), capturedAuth)
 	require.Equal(t, []byte("pngdata"), capturedFile)
+	require.Equal(t, "image/png", capturedFileContentType)
 	require.Equal(t, "createos/blog-covers", capturedFields["folder"])
 	require.Equal(t, "test-post", capturedFields["public_id"])
 	require.Equal(t, "true", capturedFields["overwrite"])
-	require.Equal(t, "image/png", capturedFields["type"])
+	require.NotContains(t, capturedFields, "type")
 }
 
 func TestCloudinaryCoverUploaderRejectsMissingCredentials(t *testing.T) {
@@ -330,9 +333,6 @@ func (uploader *CloudinaryCoverUploader) UploadCover(ctx context.Context, asset 
 		"public_id": slug,
 		"overwrite": "true",
 	}
-	if strings.TrimSpace(asset.ContentType) != "" {
-		fields["type"] = strings.TrimSpace(asset.ContentType)
-	}
 	for name, value := range fields {
 		if err := writer.WriteField(name, value); err != nil {
 			return CoverUploadResult{}, fmt.Errorf("write cloudinary multipart field %q: %w", name, err)
@@ -417,6 +417,8 @@ func slugFromCoverPath(path string) string {
 	return slugify(path)
 }
 ```
+
+Cloudinary `type` is the delivery type, not the MIME type. Do not send a multipart form field named `type`; when `CoverUploadAsset.ContentType` is set, carry it only on the `file` part `Content-Type` header.
 
 - [ ] **Step 4: Run Cloudinary tests to verify they pass**
 

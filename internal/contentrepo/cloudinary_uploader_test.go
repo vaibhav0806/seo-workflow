@@ -2,6 +2,7 @@ package contentrepo
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,29 +12,14 @@ import (
 )
 
 func TestCloudinaryCoverUploaderUploadsCoverAsset(t *testing.T) {
-	var sawUpload bool
+	var captured cloudinaryUploadRequest
+	var handlerErr error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawUpload = true
-		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/v1_1/demo-cloud/image/upload", r.URL.Path)
-
-		username, password, ok := r.BasicAuth()
-		require.True(t, ok)
-		require.Equal(t, "api-key", username)
-		require.Equal(t, "api-secret", password)
-
-		require.NoError(t, r.ParseMultipartForm(1024))
-		file, _, err := r.FormFile("file")
-		require.NoError(t, err)
-		defer file.Close()
-
-		fileBytes, err := io.ReadAll(file)
-		require.NoError(t, err)
-		require.Equal(t, []byte("cover-bytes"), fileBytes)
-		require.Equal(t, "createos/blog-covers", r.MultipartForm.Value["folder"][0])
-		require.Equal(t, "test-post", r.MultipartForm.Value["public_id"][0])
-		require.Equal(t, "true", r.MultipartForm.Value["overwrite"][0])
-		require.Equal(t, "image/png", r.MultipartForm.Value["type"][0])
+		captured, handlerErr = captureCloudinaryUploadRequest(r)
+		if handlerErr != nil {
+			http.Error(w, handlerErr.Error(), http.StatusBadRequest)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"secure_url":"https://res.cloudinary.com/demo-cloud/image/upload/v1/createos/blog-covers/test-post.png","public_id":"createos/blog-covers/test-post","format":"png","bytes":11}`))
@@ -51,7 +37,18 @@ func TestCloudinaryCoverUploaderUploadsCoverAsset(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.True(t, sawUpload)
+	require.NoError(t, handlerErr)
+	require.True(t, captured.Seen)
+	require.Equal(t, http.MethodPost, captured.Method)
+	require.Equal(t, "/v1_1/demo-cloud/image/upload", captured.Path)
+	require.Equal(t, "api-key", captured.BasicAuthUsername)
+	require.Equal(t, "api-secret", captured.BasicAuthPassword)
+	require.Equal(t, []byte("cover-bytes"), captured.FileBytes)
+	require.Equal(t, "image/png", captured.FileContentType)
+	require.Equal(t, "createos/blog-covers", captured.Fields["folder"])
+	require.Equal(t, "test-post", captured.Fields["public_id"])
+	require.Equal(t, "true", captured.Fields["overwrite"])
+	require.NotContains(t, captured.Fields, "type")
 	require.Equal(t, CoverUploadResult{
 		URL:      "https://res.cloudinary.com/demo-cloud/image/upload/v1/createos/blog-covers/test-post.png",
 		PublicID: "createos/blog-covers/test-post",
@@ -112,10 +109,14 @@ func TestCloudinaryCoverUploaderRequiresSecureURL(t *testing.T) {
 }
 
 func TestCloudinaryCoverUploaderDefaultsFolderAndUsesPathSlug(t *testing.T) {
+	var captured cloudinaryUploadRequest
+	var handlerErr error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, r.ParseMultipartForm(1024))
-		require.Equal(t, defaultCloudinaryUploadFolder, r.MultipartForm.Value["folder"][0])
-		require.Equal(t, "my-test-post", r.MultipartForm.Value["public_id"][0])
+		captured, handlerErr = captureCloudinaryUploadRequest(r)
+		if handlerErr != nil {
+			http.Error(w, handlerErr.Error(), http.StatusBadRequest)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"secure_url":"https://res.cloudinary.com/demo-cloud/image/upload/v1/createos/blog-covers/my-test-post.png","public_id":"createos/blog-covers/my-test-post","format":"png","bytes":11}`))
@@ -131,6 +132,54 @@ func TestCloudinaryCoverUploaderDefaultsFolderAndUsesPathSlug(t *testing.T) {
 	})
 
 	require.NoError(t, err)
+	require.NoError(t, handlerErr)
+	require.Equal(t, defaultCloudinaryUploadFolder, captured.Fields["folder"])
+	require.Equal(t, "my-test-post", captured.Fields["public_id"])
 	require.Equal(t, "https://res.cloudinary.com/demo-cloud/image/upload/v1/createos/blog-covers/my-test-post.png", result.URL)
 	require.Equal(t, "createos/blog-covers/my-test-post", result.PublicID)
+}
+
+type cloudinaryUploadRequest struct {
+	Seen              bool
+	Method            string
+	Path              string
+	BasicAuthUsername string
+	BasicAuthPassword string
+	Fields            map[string]string
+	FileBytes         []byte
+	FileContentType   string
+}
+
+func captureCloudinaryUploadRequest(r *http.Request) (cloudinaryUploadRequest, error) {
+	captured := cloudinaryUploadRequest{
+		Seen:   true,
+		Method: r.Method,
+		Path:   r.URL.Path,
+		Fields: map[string]string{},
+	}
+	username, password, ok := r.BasicAuth()
+	if ok {
+		captured.BasicAuthUsername = username
+		captured.BasicAuthPassword = password
+	}
+	if err := r.ParseMultipartForm(1024); err != nil {
+		return captured, fmt.Errorf("parse multipart form: %w", err)
+	}
+	for key, values := range r.MultipartForm.Value {
+		if len(values) > 0 {
+			captured.Fields[key] = values[0]
+		}
+	}
+	file, fileHeader, err := r.FormFile("file")
+	if err != nil {
+		return captured, fmt.Errorf("read file part: %w", err)
+	}
+	defer file.Close()
+
+	captured.FileContentType = fileHeader.Header.Get("Content-Type")
+	captured.FileBytes, err = io.ReadAll(file)
+	if err != nil {
+		return captured, fmt.Errorf("read file bytes: %w", err)
+	}
+	return captured, nil
 }

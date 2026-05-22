@@ -75,12 +75,6 @@ func (uploader *CloudinaryCoverUploader) UploadCover(ctx context.Context, asset 
 	if err := writer.WriteField("overwrite", "true"); err != nil {
 		return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
 	}
-	contentType := strings.TrimSpace(asset.ContentType)
-	if contentType != "" {
-		if err := writer.WriteField("type", contentType); err != nil {
-			return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
-		}
-	}
 	if err := writeCoverFilePart(writer, asset, publicID); err != nil {
 		return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
 	}
