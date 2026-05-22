@@ -66,13 +66,16 @@ func (uploader *CloudinaryCoverUploader) UploadCover(ctx context.Context, asset 
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("folder", uploader.folder); err != nil {
+	if err := writer.WriteField("asset_folder", uploader.folder); err != nil {
+		return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
+	}
+	if err := writer.WriteField("public_id_prefix", uploader.folder); err != nil {
 		return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
 	}
 	if err := writer.WriteField("public_id", publicID); err != nil {
 		return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
 	}
-	if err := writer.WriteField("overwrite", "true"); err != nil {
+	if err := writer.WriteField("overwrite", "false"); err != nil {
 		return CoverUploadResult{}, fmt.Errorf("build cloudinary upload form: %w", err)
 	}
 	if err := writeCoverFilePart(writer, asset, publicID); err != nil {

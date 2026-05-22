@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/nodeops/seo-workflow/internal/competitor"
@@ -97,6 +101,56 @@ func TestApplyGeneratedCoverKeepsDefaultCoverWhenUploaderFails(t *testing.T) {
 	require.Len(t, uploader.received, 1)
 }
 
+func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *testing.T) {
+	oldTransport := http.DefaultTransport
+	var openRouterCalls int
+	var cloudinaryCalls int
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Host {
+		case "api.github.com":
+			return githubDuplicateContentResponse(r)
+		case "openrouter.ai":
+			openRouterCalls++
+			return jsonResponse(http.StatusOK, `{"choices":[{"message":{"images":[{"image_url":{"url":"data:image/png;base64,Y292ZXI="}}]}}]}`), nil
+		case "api.cloudinary.com":
+			cloudinaryCalls++
+			return jsonResponse(http.StatusOK, `{"secure_url":"https://res.cloudinary.com/demo/image/upload/v1/createos/blog-covers/test-post.png","public_id":"createos/blog-covers/test-post","format":"png","bytes":5}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected request to %s", r.URL.String())
+		}
+	})
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	err := writeCompetitorContentPullRequest(context.Background(), &config.Config{
+		GitHubToken:            "ghp_test",
+		ContentRepo:            "NodeOps-app/createos-content",
+		ContentBaseBranch:      "main",
+		ContentAuthor:          "CreateOS",
+		ContentCoverURL:        "https://example.com/default-cover.png",
+		OpenRouterAPIKey:       "openrouter-key",
+		OpenRouterCoverModel:   "image-model",
+		CloudinaryCloudName:    "demo-cloud",
+		CloudinaryAPIKey:       "cloudinary-key",
+		CloudinaryAPISecret:    "cloudinary-secret",
+		CloudinaryUploadFolder: "createos/blog-covers",
+	}, competitor.Summary{
+		GeneratedAtUTC: "2026-05-22T10:30:00Z",
+		ContentPlan: []competitor.ContentRecommendation{{
+			SuggestedTitle: "Test Post",
+			Draft: &competitor.BlogDraft{
+				Route:           "/blog/test-post",
+				Title:           "Test Post",
+				MetaDescription: "Description",
+				BodyMarkdown:    "# Test Post\n\nBody",
+			},
+		}},
+	})
+
+	require.EqualError(t, err, "content file already exists on main: blogs/test-post.md")
+	require.Zero(t, openRouterCalls, "cover generation must not run after duplicate content preflight fails")
+	require.Zero(t, cloudinaryCalls, "cover upload must not run after duplicate content preflight fails")
+}
+
 func TestNewCoverUploaderFromConfigRequiresAllCloudinaryCredentials(t *testing.T) {
 	require.Nil(t, newCoverUploaderFromConfig(&config.Config{
 		CloudinaryAPIKey:       "cloudinary-key",
@@ -167,4 +221,32 @@ func (uploader *stubCoverUploader) UploadCover(_ context.Context, asset contentr
 		return contentrepo.CoverUploadResult{}, uploader.err
 	}
 	return uploader.result, nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return fn(r)
+}
+
+func githubDuplicateContentResponse(r *http.Request) (*http.Response, error) {
+	if r.Method != http.MethodGet {
+		return jsonResponse(http.StatusTeapot, `{"message":"unexpected mutation"}`), nil
+	}
+	switch r.URL.Path {
+	case "/repos/NodeOps-app/createos-content/contents/README.md":
+		return jsonResponse(http.StatusOK, `{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`), nil
+	case "/repos/NodeOps-app/createos-content/contents/blogs/test-post.md":
+		return jsonResponse(http.StatusOK, `{"sha":"existing-sha"}`), nil
+	default:
+		return jsonResponse(http.StatusTeapot, `{"message":"unexpected github path"}`), nil
+	}
+}
+
+func jsonResponse(statusCode int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: statusCode,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }

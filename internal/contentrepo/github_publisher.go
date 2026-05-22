@@ -66,40 +66,61 @@ type CoverAsset struct {
 	Content []byte
 }
 
-func (publisher *GitHubPublisher) Publish(ctx context.Context, post BlogPost, sourceReportPath string, assets ...CoverAsset) (PublishResult, error) {
+type publishPreflight struct {
+	owner      string
+	repo       string
+	baseBranch string
+	path       string
+}
+
+func (publisher *GitHubPublisher) ValidateCanPublish(ctx context.Context, post BlogPost) error {
+	_, err := publisher.validateCanPublish(ctx, post)
+	return err
+}
+
+func (publisher *GitHubPublisher) validateCanPublish(ctx context.Context, post BlogPost) (publishPreflight, error) {
 	if publisher.token == "" {
-		return PublishResult{}, fmt.Errorf("github token is required")
+		return publishPreflight{}, fmt.Errorf("github token is required")
 	}
 	owner, repo, err := splitRepo(publisher.repo)
 	if err != nil {
-		return PublishResult{}, err
+		return publishPreflight{}, err
 	}
 
 	baseBranch := publisher.baseBranch
 	if baseBranch == "" {
 		baseBranch, err = publisher.fetchDefaultBranch(ctx, owner, repo)
 		if err != nil {
-			return PublishResult{}, err
+			return publishPreflight{}, err
 		}
 	}
 	if err := publisher.validateReadmeContract(ctx, owner, repo, baseBranch); err != nil {
-		return PublishResult{}, err
+		return publishPreflight{}, err
 	}
 
 	path := post.FilePath()
 	if sha, err := publisher.fetchContentSHA(ctx, owner, repo, path, baseBranch); err != nil {
-		return PublishResult{}, err
+		return publishPreflight{}, err
 	} else if sha != "" {
-		return PublishResult{}, fmt.Errorf("content file already exists on %s: %s", baseBranch, path)
+		return publishPreflight{}, fmt.Errorf("content file already exists on %s: %s", baseBranch, path)
 	}
 
-	baseSHA, err := publisher.fetchBranchSHA(ctx, owner, repo, baseBranch)
+	return publishPreflight{owner: owner, repo: repo, baseBranch: baseBranch, path: path}, nil
+}
+
+func (publisher *GitHubPublisher) Publish(ctx context.Context, post BlogPost, sourceReportPath string, assets ...CoverAsset) (PublishResult, error) {
+	preflight, err := publisher.validateCanPublish(ctx, post)
+	if err != nil {
+		return PublishResult{}, err
+	}
+
+	baseSHA, err := publisher.fetchBranchSHA(ctx, preflight.owner, preflight.repo, preflight.baseBranch)
 	if err != nil {
 		return PublishResult{}, err
 	}
 
 	branch := fmt.Sprintf("seo/content/%s-%s", post.Slug, time.Now().UTC().Format("20060102-150405"))
-	if err := publisher.createBranch(ctx, owner, repo, branch, baseSHA); err != nil {
+	if err := publisher.createBranch(ctx, preflight.owner, preflight.repo, branch, baseSHA); err != nil {
 		return PublishResult{}, err
 	}
 
@@ -108,22 +129,22 @@ func (publisher *GitHubPublisher) Publish(ctx context.Context, post BlogPost, so
 		if assetPath == "" || len(asset.Content) == 0 {
 			continue
 		}
-		if err := publisher.putContentBytes(ctx, owner, repo, assetPath, branch, "", asset.Content, "add cover: "+post.Slug); err != nil {
+		if err := publisher.putContentBytes(ctx, preflight.owner, preflight.repo, assetPath, branch, "", asset.Content, "add cover: "+post.Slug); err != nil {
 			return PublishResult{}, err
 		}
 	}
 
-	if err := publisher.putContent(ctx, owner, repo, path, branch, "", post.Markdown(), "add blog: "+post.Slug); err != nil {
+	if err := publisher.putContent(ctx, preflight.owner, preflight.repo, preflight.path, branch, "", post.Markdown(), "add blog: "+post.Slug); err != nil {
 		return PublishResult{}, err
 	}
 
-	pr, err := publisher.createPullRequest(ctx, owner, repo, baseBranch, branch, post, sourceReportPath)
+	pr, err := publisher.createPullRequest(ctx, preflight.owner, preflight.repo, preflight.baseBranch, branch, post, sourceReportPath)
 	if err != nil {
 		return PublishResult{}, err
 	}
-	warnings := publisher.completeReviewHandoff(ctx, owner, repo, pr.Number, post)
+	warnings := publisher.completeReviewHandoff(ctx, preflight.owner, preflight.repo, pr.Number, post)
 
-	return PublishResult{PullRequestURL: pr.HTMLURL, Branch: branch, FilePath: path, Warnings: warnings}, nil
+	return PublishResult{PullRequestURL: pr.HTMLURL, Branch: branch, FilePath: preflight.path, Warnings: warnings}, nil
 }
 
 func (publisher *GitHubPublisher) validateReadmeContract(ctx context.Context, owner string, repo string, branch string) error {

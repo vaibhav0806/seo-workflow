@@ -45,9 +45,11 @@ func TestCloudinaryCoverUploaderUploadsCoverAsset(t *testing.T) {
 	require.Equal(t, "api-secret", captured.BasicAuthPassword)
 	require.Equal(t, []byte("cover-bytes"), captured.FileBytes)
 	require.Equal(t, "image/png", captured.FileContentType)
-	require.Equal(t, "createos/blog-covers", captured.Fields["folder"])
+	require.NotContains(t, captured.Fields, "folder")
+	require.Equal(t, "createos/blog-covers", captured.Fields["asset_folder"])
+	require.Equal(t, "createos/blog-covers", captured.Fields["public_id_prefix"])
 	require.Equal(t, "test-post", captured.Fields["public_id"])
-	require.Equal(t, "true", captured.Fields["overwrite"])
+	require.Equal(t, "false", captured.Fields["overwrite"])
 	require.NotContains(t, captured.Fields, "type")
 	require.Equal(t, CoverUploadResult{
 		URL:      "https://res.cloudinary.com/demo-cloud/image/upload/v1/createos/blog-covers/test-post.png",
@@ -133,8 +135,11 @@ func TestCloudinaryCoverUploaderDefaultsFolderAndUsesPathSlug(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NoError(t, handlerErr)
-	require.Equal(t, defaultCloudinaryUploadFolder, captured.Fields["folder"])
+	require.NotContains(t, captured.Fields, "folder")
+	require.Equal(t, defaultCloudinaryUploadFolder, captured.Fields["asset_folder"])
+	require.Equal(t, defaultCloudinaryUploadFolder, captured.Fields["public_id_prefix"])
 	require.Equal(t, "my-test-post", captured.Fields["public_id"])
+	require.Equal(t, "false", captured.Fields["overwrite"])
 	require.Equal(t, "https://res.cloudinary.com/demo-cloud/image/upload/v1/createos/blog-covers/my-test-post.png", result.URL)
 	require.Equal(t, "createos/blog-covers/my-test-post", result.PublicID)
 }

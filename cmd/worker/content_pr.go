@@ -30,6 +30,11 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 	if err != nil {
 		return err
 	}
+	publisher := contentrepo.NewGitHubPublisher(cfg.GitHubToken, cfg.ContentRepo, cfg.ContentBaseBranch, cfg.ContentReviewer)
+	if err := publisher.ValidateCanPublish(ctx, post); err != nil {
+		return err
+	}
+
 	coverUploader := newCoverUploaderFromConfig(cfg)
 	coverAssets := []contentrepo.CoverAsset{}
 	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" && strings.TrimSpace(cfg.OpenRouterCoverModel) != "" {
@@ -45,7 +50,6 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 		}
 	}
 
-	publisher := contentrepo.NewGitHubPublisher(cfg.GitHubToken, cfg.ContentRepo, cfg.ContentBaseBranch, cfg.ContentReviewer)
 	result, err := publisher.Publish(ctx, post, cfg.CompetitorReportPath, coverAssets...)
 	if err != nil {
 		return err
