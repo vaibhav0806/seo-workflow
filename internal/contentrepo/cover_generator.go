@@ -57,9 +57,6 @@ func GenerateOpenRouterCover(ctx context.Context, apiKey string, model string, p
 	if apiKey == "" || model == "" {
 		return GeneratedCover{}, nil
 	}
-	if assetBaseURL == "" {
-		return GeneratedCover{}, fmt.Errorf("CONTENT_COVER_ASSET_BASE_URL is required when OPENROUTER_COVER_MODEL is set")
-	}
 
 	request := openRouterCoverRequest{
 		Model: model,
@@ -102,18 +99,26 @@ func GenerateOpenRouterCover(ctx context.Context, apiKey string, model string, p
 	if dataURL == "" {
 		return GeneratedCover{}, fmt.Errorf("openrouter cover response had no image data")
 	}
+	return generatedCoverFromDataURL(post, dataURL, assetBaseURL)
+}
+
+func generatedCoverFromDataURL(post BlogPost, dataURL string, assetBaseURL string) (GeneratedCover, error) {
+	assetBaseURL = strings.TrimRight(strings.TrimSpace(assetBaseURL), "/")
 	mimeType, content, err := decodeDataURL(dataURL)
 	if err != nil {
 		return GeneratedCover{}, err
 	}
 	assetPath := "covers/" + post.Slug + extensionForMime(mimeType)
-	return GeneratedCover{
-		URL: assetBaseURL + "/" + assetPath,
+	cover := GeneratedCover{
 		Asset: CoverAsset{
 			Path:    assetPath,
 			Content: content,
 		},
-	}, nil
+	}
+	if assetBaseURL != "" {
+		cover.URL = assetBaseURL + "/" + assetPath
+	}
+	return cover, nil
 }
 
 func firstOpenRouterImageDataURL(response openRouterCoverResponse) string {

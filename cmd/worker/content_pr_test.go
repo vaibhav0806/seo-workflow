@@ -121,6 +121,40 @@ func TestNewCoverUploaderFromConfigRequiresAllCloudinaryCredentials(t *testing.T
 	}))
 }
 
+func TestShouldGenerateCoverWithCloudinaryCredentialsAndEmptyAssetBaseURL(t *testing.T) {
+	cfg := &config.Config{
+		OpenRouterAPIKey:       "openrouter-key",
+		OpenRouterCoverModel:   "image-model",
+		CloudinaryCloudName:    "demo-cloud",
+		CloudinaryAPIKey:       "cloudinary-key",
+		CloudinaryAPISecret:    "cloudinary-secret",
+		CloudinaryUploadFolder: "createos/blog-covers",
+	}
+
+	require.True(t, shouldGenerateCover(cfg, newCoverUploaderFromConfig(cfg)))
+}
+
+func TestShouldGenerateCoverWithAssetBaseURLAndNoCloudinary(t *testing.T) {
+	cfg := &config.Config{
+		OpenRouterAPIKey:         "openrouter-key",
+		OpenRouterCoverModel:     "image-model",
+		ContentCoverAssetBaseURL: "https://cdn.example.com/createos-content",
+		CloudinaryUploadFolder:   "createos/blog-covers",
+	}
+
+	require.True(t, shouldGenerateCover(cfg, newCoverUploaderFromConfig(cfg)))
+}
+
+func TestShouldGenerateCoverRequiresPublishTarget(t *testing.T) {
+	cfg := &config.Config{
+		OpenRouterAPIKey:       "openrouter-key",
+		OpenRouterCoverModel:   "image-model",
+		CloudinaryUploadFolder: "createos/blog-covers",
+	}
+
+	require.False(t, shouldGenerateCover(cfg, newCoverUploaderFromConfig(cfg)))
+}
+
 type stubCoverUploader struct {
 	result   contentrepo.CoverUploadResult
 	err      error

@@ -544,8 +544,12 @@ git commit -m "Load Cloudinary cover upload config"
 ### Task 3: Worker Cover Selection
 
 **Files:**
+- Modify: `internal/contentrepo/cover_generator.go`
+- Test: `internal/contentrepo/cover_generator_test.go`
 - Modify: `cmd/worker/content_pr.go`
 - Test: `cmd/worker/content_pr_test.go`
+
+**Review update:** Cloudinary-only cover generation must not require the legacy `CONTENT_COVER_ASSET_BASE_URL`. `GenerateOpenRouterCover` should always return `Asset.Path` and `Asset.Content` after OpenRouter returns image data, and should set `GeneratedCover.URL` only when an asset base URL is configured. The worker must only call OpenRouter when the generated image has a publishing target: Cloudinary credentials or a non-empty `CONTENT_COVER_ASSET_BASE_URL`.
 
 - [ ] **Step 1: Write failing worker selection tests**
 
