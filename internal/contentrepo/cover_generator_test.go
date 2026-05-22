@@ -1,6 +1,7 @@
 package contentrepo
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -30,4 +31,30 @@ func TestCoverPromptUsesCreateOSPastelNatureTechStyle(t *testing.T) {
 	require.Contains(t, prompt, "protected workflow layers")
 	require.Contains(t, prompt, "no readable text")
 	require.NotContains(t, prompt, "dark graphite")
+}
+
+func TestGeneratedCoverFromDataURLAllowsEmptyAssetBaseURL(t *testing.T) {
+	post := BlogPost{Slug: "test-post"}
+	content := []byte("cover-bytes")
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(content)
+
+	cover, err := generatedCoverFromDataURL(post, dataURL, "")
+
+	require.NoError(t, err)
+	require.Empty(t, cover.URL)
+	require.Equal(t, "covers/test-post.png", cover.Asset.Path)
+	require.Equal(t, content, cover.Asset.Content)
+}
+
+func TestGeneratedCoverFromDataURLBuildsURLWithAssetBaseURL(t *testing.T) {
+	post := BlogPost{Slug: "test-post"}
+	content := []byte("cover-bytes")
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(content)
+
+	cover, err := generatedCoverFromDataURL(post, dataURL, "https://cdn.example.com/createos-content/")
+
+	require.NoError(t, err)
+	require.Equal(t, "https://cdn.example.com/createos-content/covers/test-post.png", cover.URL)
+	require.Equal(t, "covers/test-post.png", cover.Asset.Path)
+	require.Equal(t, content, cover.Asset.Content)
 }
