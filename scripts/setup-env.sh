@@ -61,6 +61,10 @@ if [[ "$WORKER_MODE" == "oneshot-competitor" ]]; then
   prompt_default OPENROUTER_DRAFT_MODEL "OpenRouter draft-writing model (optional)" "$OPENROUTER_MODEL"
   prompt_default OPENROUTER_COVER_MODEL "OpenRouter cover image model" "google/gemini-2.5-flash-image"
   prompt_default CONTENT_COVER_ASSET_BASE_URL "Public base URL for generated cover assets (optional)" ""
+  prompt_default CLOUDINARY_CLOUD_NAME "Cloudinary cloud name (optional)" "${CLOUDINARY_CLOUD_NAME:-}"
+  prompt_default CLOUDINARY_API_KEY "Cloudinary API key (optional)" "${CLOUDINARY_API_KEY:-}"
+  prompt_secret CLOUDINARY_API_SECRET "Cloudinary API secret (optional; press Enter to leave empty)"
+  prompt_default CLOUDINARY_UPLOAD_FOLDER "Cloudinary upload folder" "createos/blog-covers"
   prompt_secret NOTION_API_KEY "Notion API key (optional; press Enter to leave empty)"
   prompt_default NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID "Notion report parent page ID (optional)" ""
 
@@ -75,6 +79,10 @@ OPENROUTER_MODEL=$OPENROUTER_MODEL
 OPENROUTER_DRAFT_MODEL=${OPENROUTER_DRAFT_MODEL:-}
 OPENROUTER_COVER_MODEL=${OPENROUTER_COVER_MODEL:-}
 CONTENT_COVER_ASSET_BASE_URL=${CONTENT_COVER_ASSET_BASE_URL:-}
+CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
+CLOUDINARY_UPLOAD_FOLDER=${CLOUDINARY_UPLOAD_FOLDER:-createos/blog-covers}
 NOTION_API_KEY=${NOTION_API_KEY:-}
 NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID=${NOTION_COMPETITOR_REPORT_PARENT_PAGE_ID:-}
 ENV
