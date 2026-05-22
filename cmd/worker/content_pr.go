@@ -41,7 +41,7 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 		if !shouldGenerateCover(cfg, coverUploader) {
 			log.Printf("competitor cover image generation skipped: configure Cloudinary credentials or CONTENT_COVER_ASSET_BASE_URL")
 		} else {
-			cover, coverErr := contentrepo.GenerateOpenRouterCover(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterCoverModel, post, cfg.ContentCoverAssetBaseURL)
+			cover, coverErr := contentrepo.GenerateOpenRouterCover(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterCoverModel, post, cfg.ContentCoverAssetBaseURL, cfg.ContentCoverStyle)
 			if coverErr != nil {
 				log.Printf("competitor cover image generation skipped: %v", coverErr)
 			} else {

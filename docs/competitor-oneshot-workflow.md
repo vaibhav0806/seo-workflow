@@ -53,6 +53,10 @@ export COMPETITOR_CONTENT_DRAFT_LIMIT='1'
 # optional generated cover image model
 export OPENROUTER_COVER_MODEL='google/gemini-2.5-flash-image'
 
+# optional generated cover prompt style
+# auto maps topic themes to one of: green-lush, soft-tech-furry, surreal-dreamscape
+export CONTENT_COVER_STYLE='auto'
+
 # recommended public image hosting for generated covers
 # Cloudinary has a free plan; create a cloud and API key, then set:
 export CLOUDINARY_CLOUD_NAME='your-cloud-name'

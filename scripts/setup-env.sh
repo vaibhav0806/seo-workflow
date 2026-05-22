@@ -60,6 +60,7 @@ if [[ "$WORKER_MODE" == "oneshot-competitor" ]]; then
   prompt_default OPENROUTER_MODEL "OpenRouter model" "moonshotai/kimi-k2"
   prompt_default OPENROUTER_DRAFT_MODEL "OpenRouter draft-writing model (optional)" "$OPENROUTER_MODEL"
   prompt_default OPENROUTER_COVER_MODEL "OpenRouter cover image model" "google/gemini-2.5-flash-image"
+  prompt_default CONTENT_COVER_STYLE "Generated cover prompt style (auto/green-lush/soft-tech-furry/surreal-dreamscape)" "auto"
   prompt_default CONTENT_COVER_ASSET_BASE_URL "Public base URL for generated cover assets (optional)" ""
   prompt_default CLOUDINARY_CLOUD_NAME "Cloudinary cloud name (optional)" "${CLOUDINARY_CLOUD_NAME:-}"
   prompt_default CLOUDINARY_API_KEY "Cloudinary API key (optional)" "${CLOUDINARY_API_KEY:-}"
@@ -78,6 +79,7 @@ OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
 OPENROUTER_MODEL=$OPENROUTER_MODEL
 OPENROUTER_DRAFT_MODEL=${OPENROUTER_DRAFT_MODEL:-}
 OPENROUTER_COVER_MODEL=${OPENROUTER_COVER_MODEL:-}
+CONTENT_COVER_STYLE=${CONTENT_COVER_STYLE:-auto}
 CONTENT_COVER_ASSET_BASE_URL=${CONTENT_COVER_ASSET_BASE_URL:-}
 CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
 CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}

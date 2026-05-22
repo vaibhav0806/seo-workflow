@@ -21,6 +21,7 @@ const (
 	defaultContentAuthor          = "CreateOS"
 	defaultContentReviewer        = "navedux,vaibhav0806"
 	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
+	defaultContentCoverStyle      = "auto"
 	defaultOpenRouterCoverModel   = "google/gemini-2.5-flash-image"
 	defaultCloudinaryUploadFolder = "createos/blog-covers"
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
@@ -72,6 +73,7 @@ type Config struct {
 	ContentAuthor                      string
 	ContentReviewer                    string
 	ContentCoverURL                    string
+	ContentCoverStyle                  string
 	ContentCoverAssetBaseURL           string
 	OpenRouterCoverModel               string
 	CloudinaryCloudName                string
@@ -106,6 +108,7 @@ func Load() (*Config, error) {
 		ContentAuthor:               defaultContentAuthor,
 		ContentReviewer:             defaultContentReviewer,
 		ContentCoverURL:             defaultContentCoverURL,
+		ContentCoverStyle:           defaultContentCoverStyle,
 		OpenRouterCoverModel:        defaultOpenRouterCoverModel,
 		CloudinaryUploadFolder:      defaultCloudinaryUploadFolder,
 		CompetitorWindowDays:        defaultWindowDays,
@@ -229,6 +232,9 @@ func Load() (*Config, error) {
 		}
 		if contentCoverURL := strings.TrimSpace(os.Getenv("CONTENT_DEFAULT_COVER_URL")); contentCoverURL != "" {
 			cfg.ContentCoverURL = contentCoverURL
+		}
+		if contentCoverStyle := strings.TrimSpace(os.Getenv("CONTENT_COVER_STYLE")); contentCoverStyle != "" {
+			cfg.ContentCoverStyle = contentCoverStyle
 		}
 		cfg.ContentCoverAssetBaseURL = strings.TrimSpace(os.Getenv("CONTENT_COVER_ASSET_BASE_URL"))
 		if coverModel := strings.TrimSpace(os.Getenv("OPENROUTER_COVER_MODEL")); coverModel != "" {

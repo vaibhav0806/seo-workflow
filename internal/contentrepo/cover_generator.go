@@ -19,6 +19,14 @@ type GeneratedCover struct {
 	Asset CoverAsset
 }
 
+type CoverPromptStyle struct {
+	ID             string
+	Name           string
+	PositivePrompt string
+	NegativePrompt string
+	ThemeHints     []string
+}
+
 type openRouterCoverRequest struct {
 	Model       string                `json:"model"`
 	Messages    []openRouterMessage   `json:"messages"`
@@ -50,7 +58,7 @@ type openRouterCoverResponse struct {
 	} `json:"choices"`
 }
 
-func GenerateOpenRouterCover(ctx context.Context, apiKey string, model string, post BlogPost, assetBaseURL string) (GeneratedCover, error) {
+func GenerateOpenRouterCover(ctx context.Context, apiKey string, model string, post BlogPost, assetBaseURL string, coverStyle string) (GeneratedCover, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	model = strings.TrimSpace(model)
 	assetBaseURL = strings.TrimRight(strings.TrimSpace(assetBaseURL), "/")
@@ -61,7 +69,7 @@ func GenerateOpenRouterCover(ctx context.Context, apiKey string, model string, p
 	request := openRouterCoverRequest{
 		Model: model,
 		Messages: []openRouterMessage{
-			{Role: "user", Content: coverPrompt(post)},
+			{Role: "user", Content: coverPrompt(post, coverStyle)},
 		},
 		Modalities:  []string{"image", "text"},
 		Temperature: 0.4,
@@ -147,13 +155,18 @@ func decodeDataURL(dataURL string) (string, []byte, error) {
 	return mimeType, content, nil
 }
 
-func coverPrompt(post BlogPost) string {
+func coverPrompt(post BlogPost, requestedStyle string) string {
+	style := selectedCoverStyle(post, requestedStyle)
 	return strings.Join([]string{
 		"Create a 1200x630 editorial blog cover image for CreateOS.",
+		"Cover style: " + style.ID,
+		"Style name: " + style.Name,
 		"",
-		"Use the established CreateOS blog visual style: a bright surreal 3D landscape with soft pastel terrain, clear water, cloudy sky, distant white mountains, moss, vines, flowers, and glassy futuristic technology objects. The image should feel magical, optimistic, premium, and product-led. Blend organic nature with advanced software infrastructure.",
+		"Positive prompt:",
+		stylePromptForPost(style, post),
 		"",
-		"Visual language: soft lavender, coral, white, sky blue, fresh green, subtle cyan glow, frosted glass, translucent panels, rounded futuristic devices, floating paths, connected nodes, moss-covered tech, gentle sunlight, cinematic depth of field.",
+		"Negative prompt:",
+		style.NegativePrompt,
 		"",
 		"Core metaphor: CreateOS is the workspace where ideas move from concept to live application. Show fragmented inputs becoming one coherent execution layer.",
 		"",
@@ -165,6 +178,134 @@ func coverPrompt(post BlogPost) string {
 		"Article title: " + post.Title,
 		"Description: " + post.Description,
 	}, "\n")
+}
+
+func stylePromptForPost(style CoverPromptStyle, post BlogPost) string {
+	subject := coverPromptSubject(post)
+	prompt := strings.ReplaceAll(style.PositivePrompt, "[ARTICLE-SPECIFIC SUBJECT OR SCENE]", subject)
+	prompt = strings.ReplaceAll(prompt, "[ARTICLE-SPECIFIC SUBJECT]", subject)
+	prompt = strings.ReplaceAll(prompt, "[ARTICLE-SPECIFIC OBJECT]", subject)
+	return prompt
+}
+
+func coverPromptSubject(post BlogPost) string {
+	text := coverStyleText(post)
+	switch {
+	case strings.Contains(text, "security") || strings.Contains(text, "governance") || strings.Contains(text, "compliance"):
+		return "a transparent policy gateway and protected CreateOS execution server"
+	case strings.Contains(text, "prototype") || strings.Contains(text, "mvp") || strings.Contains(text, "vibe") || strings.Contains(text, "ship"):
+		return "a sketch-like idea fragment transforming into a polished CreateOS application object"
+	case strings.Contains(text, "comparison") || strings.Contains(text, "alternative") || strings.Contains(text, "benchmark") || strings.Contains(text, "vs"):
+		return "multiple abstract software paths converging into one clear CreateOS execution route"
+	case strings.Contains(text, "integration") || strings.Contains(text, "ecosystem") || strings.Contains(text, "partner"):
+		return "connected glass tool modules feeding into a central CreateOS workspace hub"
+	case strings.Contains(text, "agent") || strings.Contains(text, "workflow") || strings.Contains(text, "automation"):
+		return "small glowing workflow nodes moving between connected CreateOS task modules"
+	case strings.Contains(text, "context") || strings.Contains(text, "switching") || strings.Contains(text, "fragment"):
+		return "scattered software fragments arranging into one calm CreateOS workspace"
+	default:
+		title := strings.TrimSpace(post.Title)
+		if title != "" {
+			return "an abstract CreateOS visual metaphor for " + title
+		}
+		return "a futuristic CreateOS workspace object"
+	}
+}
+
+func selectedCoverStyle(post BlogPost, requestedStyle string) CoverPromptStyle {
+	requestedStyle = normalizeCoverStyleID(requestedStyle)
+	if style, ok := coverPromptStylesByID()[requestedStyle]; ok && requestedStyle != "auto" {
+		return style
+	}
+
+	text := coverStyleText(post)
+	for _, style := range coverPromptStyles() {
+		for _, hint := range style.ThemeHints {
+			if strings.Contains(text, hint) {
+				return style
+			}
+		}
+	}
+
+	styles := coverPromptStyles()
+	return styles[stableCoverStyleIndex(post.Slug, len(styles))]
+}
+
+func normalizeCoverStyleID(style string) string {
+	style = strings.ToLower(strings.TrimSpace(style))
+	style = strings.ReplaceAll(style, "_", "-")
+	if style == "" {
+		return "auto"
+	}
+	switch style {
+	case "green", "green-lush-aesthetic":
+		return "green-lush"
+	case "soft", "soft-tech", "soft-tech-furry-aesthetic":
+		return "soft-tech-furry"
+	case "dreamscape", "surreal", "surreal-dreamscape-aesthetic":
+		return "surreal-dreamscape"
+	default:
+		return style
+	}
+}
+
+func coverStyleText(post BlogPost) string {
+	return strings.ToLower(strings.Join(append([]string{post.Title, post.Description, post.Slug}, post.Tags...), " "))
+}
+
+func stableCoverStyleIndex(slug string, styleCount int) int {
+	if styleCount <= 1 {
+		return 0
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		slug = "createos"
+	}
+	sum := 0
+	for _, r := range slug {
+		sum += int(r)
+	}
+	return sum % styleCount
+}
+
+func coverPromptStylesByID() map[string]CoverPromptStyle {
+	styles := map[string]CoverPromptStyle{}
+	for _, style := range coverPromptStyles() {
+		styles[style.ID] = style
+	}
+	return styles
+}
+
+func coverPromptStyles() []CoverPromptStyle {
+	return []CoverPromptStyle{
+		{
+			ID:             "green-lush",
+			Name:           "Green Lush Aesthetic",
+			PositivePrompt: "A surreal, hyper-detailed 3D render of [ARTICLE-SPECIFIC SUBJECT] heavily overgrown with lush, fuzzy green moss, small wildflowers, and tangled organic wires. It is situated in the middle of flowing, crystal-clear shallow blue water. The background features pristine, rolling green grassy hills under a bright blue sky with perfect, fluffy white clouds. The lighting is bright, high-key daylight with a dreamy, ethereal bloom and glowing highlights. The aesthetic is a blend of Frutiger Aero and Solarpunk. Octane render, photorealistic, tactile textures, utopian atmosphere. --ar 16:9",
+			NegativePrompt: "text, watermark, signature, logo, typography, username, words, title, branding, dark, moody, dystopian, nighttime, polluted, gritty, rough textures, harsh shadows, industrial wasteland, cyberpunk, low resolution, blurry, ugly.",
+			ThemeHints: []string{
+				"prototype", "prototyping", "mvp", "vibe", "vibecoding", "ship", "agent", "workflow", "automation", "integration", "integrations", "ecosystem", "partner",
+			},
+		},
+		{
+			ID:             "soft-tech-furry",
+			Name:           "Soft-Tech Furry Aesthetic",
+			PositivePrompt: "A surreal, hyper-detailed 3D render of [ARTICLE-SPECIFIC OBJECT]. The object is partially textured with soft, minimal white fur and plush white mossy velvet. It is situated in the middle of flowing, crystal-clear shallow blue water. The background features rolling hills composed of a soft, white furry texture under a bright blue sky with perfect, fluffy white clouds. The lighting is bright, high-key daylight with a dreamy, ethereal bloom and glowing highlights. No roots, no flowers. The aesthetic is a blend of Frutiger Aero and Soft Surrealism. Octane render, photorealistic, tactile textures, utopian atmosphere. --ar 16:9",
+			NegativePrompt: "text, watermark, signature, logo, typography, username, words, title, branding, roots, vines, flowers, floral elements, dark, moody, dystopian, nighttime, polluted, gritty, rough textures, harsh shadows, industrial wasteland, cyberpunk, low resolution, blurry, ugly, dirt, soil.",
+			ThemeHints: []string{
+				"enterprise", "security", "governance", "compliance", "trust", "reliability", "scale", "scaling", "organization",
+			},
+		},
+		{
+			ID:             "surreal-dreamscape",
+			Name:           "Surreal Dreamscape Aesthetic",
+			PositivePrompt: "A surreal, dreamlike 3D render depicting [ARTICLE-SPECIFIC SUBJECT OR SCENE]. The entire ground surface is covered in a thick, plush, soft fur and velvet moss texture in a pastel color palette dominated by lavender purple, warm coral orange, and soft pink hues. The water is smooth, still, and highly reflective, mirroring the pastel environment. The background features hazy, minimalist white layered mountains under a pale, diffused overcast sky. The lighting is ultra-soft, gentle, and diffused with an ethereal bloom and no harsh shadows. Tranquil, tactile, and whimsical atmosphere. Octane render. --ar 16:9",
+			NegativePrompt: "text, watermark, signature, logo, typography, username, words, title, branding, photorealistic grass, sharp blades of grass, dirt, soil, rocks, grit, harsh shadows, bright direct sunlight, high contrast, dark colors, neon colors, saturated primary colors, realistic trees with leaves, complex foliage, urban elements, industrial, humans, animals, low resolution, noisy, blurry.",
+			ThemeHints: []string{
+				"comparison", "alternative", "alternatives", "benchmark", " vs ", "context", "switching", "fragment", "use case", "use-case", "usecases", "strategy", "planning",
+			},
+		},
+	}
 }
 
 func coverMetaphor(post BlogPost) string {
