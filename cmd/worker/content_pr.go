@@ -35,10 +35,8 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 		cover, coverErr := contentrepo.GenerateOpenRouterCover(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterCoverModel, post, cfg.ContentCoverAssetBaseURL)
 		if coverErr != nil {
 			log.Printf("competitor cover image generation skipped: %v", coverErr)
-		} else if strings.TrimSpace(cover.URL) != "" {
-			post.Cover = cover.URL
-			coverAssets = append(coverAssets, cover.Asset)
-			log.Printf("competitor cover image generated: path=%q url=%q", cover.Asset.Path, cover.URL)
+		} else {
+			coverAssets = applyGeneratedCover(ctx, &post, cover, newCoverUploaderFromConfig(cfg))
 		}
 	}
 
@@ -52,6 +50,67 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 		log.Printf("competitor content pull request warning: %s", warning)
 	}
 	return nil
+}
+
+func newCoverUploaderFromConfig(cfg *config.Config) contentrepo.CoverUploader {
+	if cfg == nil {
+		return nil
+	}
+	cloudName := strings.TrimSpace(cfg.CloudinaryCloudName)
+	apiKey := strings.TrimSpace(cfg.CloudinaryAPIKey)
+	apiSecret := strings.TrimSpace(cfg.CloudinaryAPISecret)
+	if cloudName == "" || apiKey == "" || apiSecret == "" {
+		return nil
+	}
+	return contentrepo.NewCloudinaryCoverUploader(cloudName, apiKey, apiSecret, cfg.CloudinaryUploadFolder)
+}
+
+func applyGeneratedCover(ctx context.Context, post *contentrepo.BlogPost, cover contentrepo.GeneratedCover, uploader contentrepo.CoverUploader) []contentrepo.CoverAsset {
+	if post == nil {
+		return nil
+	}
+
+	asset := cover.Asset
+	if uploader != nil && len(asset.Content) > 0 {
+		result, err := uploader.UploadCover(ctx, contentrepo.CoverUploadAsset{
+			Path:        asset.Path,
+			Content:     asset.Content,
+			ContentType: contentTypeFromAssetPath(asset.Path),
+			Slug:        post.Slug,
+		})
+		if err != nil {
+			log.Printf("competitor cover image upload skipped: path=%q error=%v", asset.Path, err)
+			return nil
+		}
+		if strings.TrimSpace(result.URL) != "" {
+			post.Cover = result.URL
+			log.Printf("competitor cover image uploaded: path=%q url=%q", asset.Path, result.URL)
+			return nil
+		}
+	}
+
+	if strings.TrimSpace(cover.URL) != "" {
+		post.Cover = cover.URL
+		log.Printf("competitor cover image generated: path=%q url=%q", asset.Path, cover.URL)
+	}
+	if strings.TrimSpace(asset.Path) == "" || len(asset.Content) == 0 {
+		return nil
+	}
+	return []contentrepo.CoverAsset{asset}
+}
+
+func contentTypeFromAssetPath(assetPath string) string {
+	assetPath = strings.ToLower(strings.TrimSpace(assetPath))
+	switch {
+	case strings.HasSuffix(assetPath, ".jpg"), strings.HasSuffix(assetPath, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(assetPath, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(assetPath, ".png"):
+		return "image/png"
+	default:
+		return ""
+	}
 }
 
 func firstDraftRecommendation(recommendations []competitor.ContentRecommendation) (competitor.ContentRecommendation, bool) {
