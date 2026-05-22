@@ -104,3 +104,49 @@ func TestGitHubPublisherPublishesBlogPR(t *testing.T) {
 	require.Equal(t, []any{"navedux"}, assigneeBody["assignees"])
 	require.Equal(t, []any{"navedux"}, reviewerBody["reviewers"])
 }
+
+func TestGitHubPublisherValidateCanPublishRejectsExistingContentWithoutMutating(t *testing.T) {
+	requests := []struct {
+		Method string
+		Path   string
+	}{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, struct {
+			Method string
+			Path   string
+		}{Method: r.Method, Path: r.URL.Path})
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/README.md":
+			_, _ = w.Write([]byte(`{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/test-post.md":
+			_, _ = w.Write([]byte(`{"sha":"existing-sha"}`))
+		default:
+			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusTeapot)
+		}
+	}))
+	defer server.Close()
+
+	oldBase := githubAPIBase
+	githubAPIBase = server.URL
+	defer func() { githubAPIBase = oldBase }()
+
+	publisher := NewGitHubPublisher("ghp_test", "NodeOps-app/createos-content", "main", "")
+	publisher.httpClient = server.Client()
+	err := publisher.ValidateCanPublish(context.Background(), BlogPost{
+		Title:        "Test Post",
+		Slug:         "test-post",
+		Description:  "Description",
+		Author:       "CreateOS",
+		ReadTime:     "3 min",
+		Cover:        "https://example.com/cover.png",
+		PublishedAt:  time.Date(2026, 5, 12, 8, 0, 0, 0, time.UTC),
+		Destination:  "both",
+		BodyMarkdown: "# Test Post\n\nBody",
+	})
+
+	require.EqualError(t, err, "content file already exists on main: blogs/test-post.md")
+	for _, request := range requests {
+		require.Equal(t, http.MethodGet, request.Method, "preflight must not mutate content repo at %s", request.Path)
+	}
+}

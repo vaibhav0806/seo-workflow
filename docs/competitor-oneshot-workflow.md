@@ -53,9 +53,16 @@ export COMPETITOR_CONTENT_DRAFT_LIMIT='1'
 # optional generated cover image model
 export OPENROUTER_COVER_MODEL='google/gemini-2.5-flash-image'
 
-# required for generated cover images; should point at the public base URL
-# where files committed under covers/ in the content repo will be served
-export CONTENT_COVER_ASSET_BASE_URL='https://createos-content.example.com'
+# recommended public image hosting for generated covers
+# Cloudinary has a free plan; create a cloud and API key, then set:
+export CLOUDINARY_CLOUD_NAME='your-cloud-name'
+export CLOUDINARY_API_KEY='123456789'
+export CLOUDINARY_API_SECRET='cloudinary-secret'
+export CLOUDINARY_UPLOAD_FOLDER='createos/blog-covers'
+
+# legacy fallback only: use when files committed under covers/ in the content
+# repo are served by a public CDN. Do not point this at private GitHub raw URLs.
+export CONTENT_COVER_ASSET_BASE_URL='https://public-cdn.example.com'
 
 # content repo PR publishing
 export GITHUB_TOKEN='github_pat_...'
@@ -87,6 +94,7 @@ go run ./cmd/worker
 - Optional JSON report file via `COMPETITOR_REPORT_PATH`.
 - Optional content repo PR when GitHub/content repo env vars are set.
   - Generated blog frontmatter uses `destination: createos`.
-  - Generated cover assets are committed under `covers/` when cover generation succeeds.
+  - Generated cover images are uploaded to Cloudinary when Cloudinary env vars are configured.
+  - Without Cloudinary, generated cover assets are committed under `covers/` only when `CONTENT_COVER_ASSET_BASE_URL` points at a public CDN.
 - Treat the report as a heuristic input, not a source of truth.
 - Prioritize exact URL evidence and ignore low-specificity phrases.
