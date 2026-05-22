@@ -181,6 +181,10 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, "navedux,vaibhav0806", cfg.ContentReviewer)
 	require.NotEmpty(t, cfg.ContentCoverURL)
 	require.Equal(t, "google/gemini-2.5-flash-image", cfg.OpenRouterCoverModel)
+	require.Empty(t, cfg.CloudinaryCloudName)
+	require.Empty(t, cfg.CloudinaryAPIKey)
+	require.Empty(t, cfg.CloudinaryAPISecret)
+	require.Equal(t, "createos/blog-covers", cfg.CloudinaryUploadFolder)
 }
 
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
@@ -206,6 +210,10 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("CONTENT_DEFAULT_COVER_URL", "https://example.com/cover.png")
 	t.Setenv("CONTENT_COVER_ASSET_BASE_URL", "https://cdn.example.com/createos-content")
 	t.Setenv("OPENROUTER_COVER_MODEL", "google/gemini-3.1-flash-image-preview")
+	t.Setenv("CLOUDINARY_CLOUD_NAME", "demo-cloud")
+	t.Setenv("CLOUDINARY_API_KEY", "cloudinary-key")
+	t.Setenv("CLOUDINARY_API_SECRET", "cloudinary-secret")
+	t.Setenv("CLOUDINARY_UPLOAD_FOLDER", "custom/covers")
 
 	cfg, err := Load()
 
@@ -232,6 +240,10 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "https://example.com/cover.png", cfg.ContentCoverURL)
 	require.Equal(t, "https://cdn.example.com/createos-content", cfg.ContentCoverAssetBaseURL)
 	require.Equal(t, "google/gemini-3.1-flash-image-preview", cfg.OpenRouterCoverModel)
+	require.Equal(t, "demo-cloud", cfg.CloudinaryCloudName)
+	require.Equal(t, "cloudinary-key", cfg.CloudinaryAPIKey)
+	require.Equal(t, "cloudinary-secret", cfg.CloudinaryAPISecret)
+	require.Equal(t, "custom/covers", cfg.CloudinaryUploadFolder)
 }
 
 func TestLoadCompetitorModeMissingRequiredEnv(t *testing.T) {
