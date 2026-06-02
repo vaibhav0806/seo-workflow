@@ -15,7 +15,11 @@ var datedSlugPattern = regexp.MustCompile(`(20[0-9]{2})-([01][0-9])-([0-3][0-9])
 
 var themeKeywordMap = map[string][]string{
 	"ai":           {"ai", "llm", "genai", "gpt", "model", "inference"},
-	"agents":       {"agent", "agents", "autonomous", "orchestration", "workflow"},
+	"agents":       {"agent", "agents", "autonomous", "platform", "platforms"},
+	"comparison":   {"best", "top", "vs", "alternative", "alternatives", "compare", "comparison", "ranked"},
+	"usecases":     {"usecase", "usecases", "solutions", "solution", "industry", "industries"},
+	"enterprise":   {"enterprise", "teams", "governance", "compliance", "cio"},
+	"workflow":     {"workflow", "workflows", "automation", "automations", "orchestration"},
 	"vibecoding":   {"vibe", "vibecoding", "nocode", "builder"},
 	"mcp":          {"mcp", "modelcontextprotocol", "protocol"},
 	"security":     {"security", "breach", "incident", "vulnerability", "cve", "outage", "downtime"},
@@ -494,6 +498,8 @@ func pageTypeForTheme(theme string) string {
 		return "trust page"
 	case "integrations":
 		return "integration page"
+	case "workflow":
+		return "workflow guide"
 	case "agents", "ai":
 		return "pillar guide"
 	default:
@@ -547,6 +553,8 @@ func intentForTheme(theme string) string {
 		return "enterprise trust evaluation"
 	case "integrations":
 		return "implementation intent"
+	case "workflow":
+		return "workflow automation evaluation"
 	case "agents", "ai":
 		return "educational-to-product intent"
 	default:

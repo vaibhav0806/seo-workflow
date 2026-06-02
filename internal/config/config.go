@@ -55,8 +55,10 @@ type Config struct {
 	HTTPTimeoutSecs   int
 
 	CompetitorReportPath               string
+	CompetitorStatePath                string
 	CompetitorWindowDays               int
 	OurSitemapURL                      string
+	AEOObservationsPath                string
 	OpenRouterAPIKey                   string
 	OpenRouterModel                    string
 	OpenRouterFallbackModel            string
@@ -211,6 +213,8 @@ func Load() (*Config, error) {
 	case "oneshot-competitor":
 		cfg.OurSitemapURL = strings.TrimSpace(os.Getenv("OUR_SITEMAP_URL"))
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
+		cfg.CompetitorStatePath = strings.TrimSpace(os.Getenv("COMPETITOR_STATE_PATH"))
+		cfg.AEOObservationsPath = strings.TrimSpace(os.Getenv("AEO_OBSERVATIONS_PATH"))
 		cfg.OpenRouterAPIKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 		cfg.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 		cfg.NotionAPIKey = strings.TrimSpace(os.Getenv("NOTION_API_KEY"))

@@ -16,6 +16,13 @@ func TestClassifyThemes(t *testing.T) {
 	require.Contains(t, themes, "security")
 }
 
+func TestClassifyThemesRecognizesStackAIStyleTopics(t *testing.T) {
+	themes := classifyThemes("https://www.stackai.com/insights/best-ai-agent-building-platforms-in-2026")
+
+	require.Contains(t, themes, "agents")
+	require.Contains(t, themes, "comparison")
+}
+
 func TestDeriveOpportunitiesPrefersTopicSpecificSignals(t *testing.T) {
 	ours := SiteSnapshot{
 		Name:           "createos",
@@ -406,4 +413,24 @@ func TestBuildSnapshotSkipsUndatedEntries(t *testing.T) {
 	snapshot := buildSnapshot("createos", "https://createos.sh/sitemap.xml", entries, windowStart)
 	require.Equal(t, 2, snapshot.TotalURLs)
 	require.Equal(t, 1, snapshot.RecentURLCount)
+}
+
+func TestBuildSnapshotFromStateDiffUsesFirstSeenWhenNoLastmod(t *testing.T) {
+	now := time.Date(2026, 6, 2, 8, 0, 0, 0, time.UTC)
+	windowStart := now.AddDate(0, 0, -30)
+	diff := StateDiff{
+		NewURLs: []URLState{
+			{
+				URL:             "https://www.stackai.com/insights/best-ai-agent-building-platforms-in-2026",
+				FirstSeenAt:     now.Format(time.RFC3339),
+				FreshnessSource: "first_seen",
+			},
+		},
+	}
+
+	snapshot := buildSnapshotFromStateDiff("stackai", "https://www.stackai.com/sitemap.xml", diff, windowStart)
+
+	require.Equal(t, 1, snapshot.RecentURLCount)
+	require.Equal(t, "https://www.stackai.com/insights/best-ai-agent-building-platforms-in-2026", snapshot.RecentURLs[0].URL)
+	require.Contains(t, snapshot.RecentURLs[0].ThemeTags, "agents")
 }

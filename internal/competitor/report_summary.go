@@ -13,6 +13,8 @@ type ReportSummary struct {
 	OurRecentURLCount  int                           `json:"ourRecentUrlCount"`
 	CompetitorCount    int                           `json:"competitorCount"`
 	OpportunityCount   int                           `json:"opportunityCount"`
+	RefreshCount       int                           `json:"refreshCount"`
+	AEOPromptCount     int                           `json:"aeoPromptCount"`
 	SkippedTopicCount  int                           `json:"skippedTopicCount"`
 	WarningCount       int                           `json:"warningCount"`
 	TopOpportunities   []ReportOpportunity           `json:"topOpportunities"`
@@ -67,6 +69,8 @@ func BuildReportSummary(summary Summary, limit int) ReportSummary {
 		OurRecentURLCount: summary.OurSite.RecentURLCount,
 		CompetitorCount:   len(summary.Competitors),
 		OpportunityCount:  len(summary.Opportunities),
+		RefreshCount:      len(summary.RefreshQueue),
+		AEOPromptCount:    len(summary.AEOReport.Prompts),
 		SkippedTopicCount: len(summary.Debug.SkippedTopics),
 		WarningCount:      len(summary.Warnings),
 		Warnings:          limitStrings(summary.Warnings, 5),
@@ -125,10 +129,12 @@ func (report ReportSummary) PlainText() string {
 	var b strings.Builder
 	b.WriteString(report.Title)
 	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("Window: %d days | Competitors: %d | Opportunities: %d | Skipped topics: %d | Warnings: %d\n",
+	b.WriteString(fmt.Sprintf("Window: %d days | Competitors: %d | Opportunities: %d | Refreshes: %d | AEO prompts: %d | Skipped topics: %d | Warnings: %d\n",
 		report.WindowDays,
 		report.CompetitorCount,
 		report.OpportunityCount,
+		report.RefreshCount,
+		report.AEOPromptCount,
 		report.SkippedTopicCount,
 		report.WarningCount,
 	))

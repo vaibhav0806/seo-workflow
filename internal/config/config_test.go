@@ -185,6 +185,8 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Empty(t, cfg.CloudinaryAPIKey)
 	require.Empty(t, cfg.CloudinaryAPISecret)
 	require.Equal(t, "createos/blog-covers", cfg.CloudinaryUploadFolder)
+	require.Empty(t, cfg.CompetitorStatePath)
+	require.Empty(t, cfg.AEOObservationsPath)
 }
 
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
@@ -195,6 +197,8 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("OPENROUTER_DRAFT_MODEL", "qwen/qwen3.6-flash")
 	t.Setenv("OPENROUTER_DRAFT_FALLBACK_MODEL", "moonshotai/kimi-k2.5")
 	t.Setenv("COMPETITOR_REPORT_PATH", "competitor-report.json")
+	t.Setenv("COMPETITOR_STATE_PATH", "tmp/competitor-state.json")
+	t.Setenv("AEO_OBSERVATIONS_PATH", "tmp/aeo-observations.csv")
 	t.Setenv("COMPETITOR_WINDOW_DAYS", "14")
 	t.Setenv("COMPETITOR_HTTP_TIMEOUT_SEC", "45")
 	t.Setenv("OPENROUTER_TOPIC_TIMEOUT_SEC", "240")
@@ -225,6 +229,8 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "qwen/qwen3.6-flash", cfg.OpenRouterDraftModel)
 	require.Equal(t, "moonshotai/kimi-k2.5", cfg.OpenRouterDraftFallbackModel)
 	require.Equal(t, "competitor-report.json", cfg.CompetitorReportPath)
+	require.Equal(t, "tmp/competitor-state.json", cfg.CompetitorStatePath)
+	require.Equal(t, "tmp/aeo-observations.csv", cfg.AEOObservationsPath)
 	require.Equal(t, 14, cfg.CompetitorWindowDays)
 	require.Equal(t, 45, cfg.HTTPTimeoutSecs)
 	require.Equal(t, 240, cfg.OpenRouterTopicTimeoutSecs)

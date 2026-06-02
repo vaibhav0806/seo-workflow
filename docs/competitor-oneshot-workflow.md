@@ -17,6 +17,7 @@ The slug analyzer remains a fallback when title fetching or LLM topic extraction
 - Lovable (`https://lovable.dev/sitemap.xml`)
 - Replit (`https://replit.com/sitemap.xml`)
 - Emergent (`https://emergent.sh/sitemap.xml`)
+- StackAI (`https://www.stackai.com/sitemap.xml`)
 
 ## 1) Required env vars
 
@@ -36,6 +37,13 @@ export COMPETITOR_HTTP_TIMEOUT_SEC=30
 
 # write JSON report to disk
 export COMPETITOR_REPORT_PATH='competitor-report.json'
+
+# optional local state file for date-less competitor sitemap tracking
+# first run establishes a baseline; later runs treat newly observed URLs as fresh
+export COMPETITOR_STATE_PATH='tmp/competitor-state.json'
+
+# optional future manual/provider export for AI citation observations
+export AEO_OBSERVATIONS_PATH='tmp/aeo-observations.csv'
 
 # optional OpenRouter/Kimi topic extraction (primary opportunity flow when set)
 export OPENROUTER_API_KEY='sk-or-...'
@@ -85,6 +93,10 @@ go run ./cmd/worker
 ## 4) Output
 
 - Per-competitor sitemap stats and theme counts.
+- Date-less competitor tracking when `COMPETITOR_STATE_PATH` is set.
+  - This is the recommended mode for StackAI because its sitemap does not expose useful `<lastmod>` values.
+  - The first run stores a baseline.
+  - Later runs use `first_seen` freshness for newly observed URLs.
 - Ranked opportunities with:
   - title
   - why it matters
@@ -92,6 +104,8 @@ go run ./cmd/worker
   - how to execute
   - impact score (1-100)
 - Optional JSON report file via `COMPETITOR_REPORT_PATH`.
+- Optional `refreshQueue` recommendations for volatile AI, comparison, workflow, integration, and pricing pages.
+- Optional `aeoReport.prompts` matrix for manual ChatGPT/Perplexity/Gemini citation checks.
 - Optional content repo PR when GitHub/content repo env vars are set.
   - Generated blog frontmatter uses `destination: createos`.
   - Generated cover images are uploaded to Cloudinary when Cloudinary env vars are configured.
