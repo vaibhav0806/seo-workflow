@@ -149,7 +149,8 @@ func decodeDataURL(dataURL string) (string, []byte, error) {
 
 func coverPrompt(post BlogPost) string {
 	return strings.Join([]string{
-		"Create a 1200x630 editorial blog cover image for CreateOS.",
+		"Create a 1200x630 editorial blog cover image for CreateOS. CreateOS is brand context only.",
+		"This must be background art only: do not render the CreateOS name, logo, wordmark, letter C, article title, subtitle, captions, labels, UI text, watermarks, letters, numbers, or any readable or garbled typography.",
 		"",
 		"Use the established CreateOS blog visual style: a bright surreal 3D landscape with soft pastel terrain, clear water, cloudy sky, distant white mountains, moss, vines, flowers, and glassy futuristic technology objects. The image should feel magical, optimistic, premium, and product-led. Blend organic nature with advanced software infrastructure.",
 		"",
@@ -159,11 +160,11 @@ func coverPrompt(post BlogPost) string {
 		"",
 		"Article-specific metaphor: " + coverMetaphor(post),
 		"",
-		"Composition: wide 16:9 hero image, central iconic object, readable at thumbnail size, generous negative space, no clutter, no readable text.",
+		"Composition: wide 16:9 hero image, central iconic object, clear at thumbnail size, generous negative space, no clutter, no readable text.",
 		"",
-		"Avoid: humans, realistic office scenes, dark cyberpunk, generic SaaS dashboards, robots, AI brains, crypto coins, logos, readable text, random UI screenshots, harsh neon, stock-photo style.",
-		"Article title: " + post.Title,
-		"Description: " + post.Description,
+		"Avoid: humans, realistic office scenes, dark cyberpunk, generic SaaS dashboards, robots, AI brains, crypto coins, logos, wordmarks, typography, readable text, random UI screenshots, harsh neon, stock-photo style.",
+		"If the image includes panels, screens, signs, labels, or interface surfaces, keep them blank or use abstract non-letter shapes only.",
+		"Do not add any text overlay. Do not add a brand mark. Do not add a title area. The final image must contain visual metaphor only.",
 	}, "\n")
 }
 

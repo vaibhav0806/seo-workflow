@@ -30,6 +30,11 @@ func TestCoverPromptUsesCreateOSPastelNatureTechStyle(t *testing.T) {
 	require.Contains(t, prompt, "policy gates")
 	require.Contains(t, prompt, "protected workflow layers")
 	require.Contains(t, prompt, "no readable text")
+	require.Contains(t, prompt, "background art only")
+	require.NotContains(t, prompt, "Article title:")
+	require.NotContains(t, prompt, post.Title)
+	require.NotContains(t, prompt, "Description:")
+	require.NotContains(t, prompt, post.Description)
 	require.NotContains(t, prompt, "dark graphite")
 }
 
