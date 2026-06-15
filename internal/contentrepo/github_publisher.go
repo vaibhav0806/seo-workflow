@@ -24,10 +24,18 @@ type GitHubPublisher struct {
 }
 
 type PublishResult struct {
-	PullRequestURL string
-	Branch         string
-	FilePath       string
-	Warnings       []string
+	PullRequestURL    string
+	PullRequestNumber int
+	Branch            string
+	FilePath          string
+	Warnings          []string
+}
+
+type PublishOptions struct {
+	SourceReportPath      string
+	TitlePrefix           string
+	PRBodyExtraMarkdown   string
+	RelatedPullRequestURL string
 }
 
 type githubRepoResponse struct {
@@ -109,6 +117,10 @@ func (publisher *GitHubPublisher) validateCanPublish(ctx context.Context, post B
 }
 
 func (publisher *GitHubPublisher) Publish(ctx context.Context, post BlogPost, sourceReportPath string, assets ...CoverAsset) (PublishResult, error) {
+	return publisher.PublishWithOptions(ctx, post, PublishOptions{SourceReportPath: sourceReportPath}, assets...)
+}
+
+func (publisher *GitHubPublisher) PublishWithOptions(ctx context.Context, post BlogPost, options PublishOptions, assets ...CoverAsset) (PublishResult, error) {
 	preflight, err := publisher.validateCanPublish(ctx, post)
 	if err != nil {
 		return PublishResult{}, err
@@ -138,13 +150,13 @@ func (publisher *GitHubPublisher) Publish(ctx context.Context, post BlogPost, so
 		return PublishResult{}, err
 	}
 
-	pr, err := publisher.createPullRequest(ctx, preflight.owner, preflight.repo, preflight.baseBranch, branch, post, sourceReportPath)
+	pr, err := publisher.createPullRequest(ctx, preflight.owner, preflight.repo, preflight.baseBranch, branch, post, options)
 	if err != nil {
 		return PublishResult{}, err
 	}
 	warnings := publisher.completeReviewHandoff(ctx, preflight.owner, preflight.repo, pr.Number, post)
 
-	return PublishResult{PullRequestURL: pr.HTMLURL, Branch: branch, FilePath: preflight.path, Warnings: warnings}, nil
+	return PublishResult{PullRequestURL: pr.HTMLURL, PullRequestNumber: pr.Number, Branch: branch, FilePath: preflight.path, Warnings: warnings}, nil
 }
 
 func (publisher *GitHubPublisher) validateReadmeContract(ctx context.Context, owner string, repo string, branch string) error {
@@ -171,7 +183,7 @@ func (publisher *GitHubPublisher) validateReadmeContract(ctx context.Context, ow
 	return nil
 }
 
-func (publisher *GitHubPublisher) createPullRequest(ctx context.Context, owner string, repo string, baseBranch string, headBranch string, post BlogPost, sourceReportPath string) (githubPRResponse, error) {
+func (publisher *GitHubPublisher) createPullRequest(ctx context.Context, owner string, repo string, baseBranch string, headBranch string, post BlogPost, options PublishOptions) (githubPRResponse, error) {
 	body := []string{
 		approvalReviewerLine(publisher.reviewers),
 		"",
@@ -191,12 +203,18 @@ func (publisher *GitHubPublisher) createPullRequest(ctx context.Context, owner s
 		"- Destination: `" + post.Destination + "`",
 		"- Published at: `" + post.PublishedAt.UTC().Format(time.RFC3339) + "`",
 	}
-	if strings.TrimSpace(sourceReportPath) != "" {
-		body = append(body, "- Source report: `"+strings.TrimSpace(sourceReportPath)+"`")
+	if strings.TrimSpace(options.SourceReportPath) != "" {
+		body = append(body, "- Source report: `"+strings.TrimSpace(options.SourceReportPath)+"`")
+	}
+	if strings.TrimSpace(options.RelatedPullRequestURL) != "" {
+		body = append(body, "- Related PR: "+strings.TrimSpace(options.RelatedPullRequestURL))
+	}
+	if strings.TrimSpace(options.PRBodyExtraMarkdown) != "" {
+		body = append(body, "", strings.TrimSpace(options.PRBodyExtraMarkdown))
 	}
 
 	payload := map[string]any{
-		"title": "Add CreateOS SEO blog: " + post.Title,
+		"title": normalizePRTitlePrefix(options.TitlePrefix) + "Add CreateOS SEO blog: " + post.Title,
 		"head":  headBranch,
 		"base":  baseBranch,
 		"body":  strings.Join(body, "\n"),
@@ -210,6 +228,14 @@ func (publisher *GitHubPublisher) createPullRequest(ctx context.Context, owner s
 		return githubPRResponse{}, fmt.Errorf("create pull request returned incomplete response")
 	}
 	return parsed, nil
+}
+
+func normalizePRTitlePrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return ""
+	}
+	return prefix + " "
 }
 
 func approvalReviewerLine(reviewers []string) string {

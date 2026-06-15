@@ -124,6 +124,8 @@ go run ./cmd/worker
   - Generated blog frontmatter uses `destination: createos`.
   - Generated cover images are uploaded to Cloudinary when Cloudinary env vars are configured.
   - Without Cloudinary, generated cover assets are committed under `covers/` only when `CONTENT_COVER_ASSET_BASE_URL` points at a public CDN.
+  - Every generated PR includes an automated SEO risk review in the PR body.
+  - High or critical SEO risk creates a `RISKY:` original PR plus a `MITIGATED:` companion PR. Humans should merge only one.
 - Optional manual content seed via `CONTENT_MANUAL_TITLE`.
   - The workflow still fetches CreateOS and competitor sitemaps, reads CreateOS guidance docs, builds internal link candidates, generates the draft, generates/uploads the cover image, and opens the content PR through the same path.
   - A plain `CONTENT_MANUAL_SLUG` becomes `/blogs/<slug>`; pass a path like `compare/foo` only when you intentionally want that route in the draft prompt.

@@ -63,7 +63,16 @@ func publishCompetitorContentPost(ctx context.Context, cfg *config.Config, publi
 		}
 	}
 
-	result, err := publisher.Publish(ctx, post, cfg.CompetitorReportPath, coverAssets...)
+	riskReport := contentrepo.AssessSEORisk(post)
+	titlePrefix := ""
+	if riskReport.Risky {
+		titlePrefix = "RISKY:"
+	}
+	result, err := publisher.PublishWithOptions(ctx, post, contentrepo.PublishOptions{
+		SourceReportPath:    cfg.CompetitorReportPath,
+		TitlePrefix:         titlePrefix,
+		PRBodyExtraMarkdown: riskReport.Markdown(),
+	}, coverAssets...)
 	if err != nil {
 		return err
 	}
@@ -71,7 +80,33 @@ func publishCompetitorContentPost(ctx context.Context, cfg *config.Config, publi
 	for _, warning := range result.Warnings {
 		log.Printf("competitor content pull request warning: %s", warning)
 	}
+	if riskReport.Risky {
+		mitigatedPost := contentrepo.MitigateSEORisk(post, riskReport)
+		mitigatedResult, mitigationErr := publisher.PublishWithOptions(ctx, mitigatedPost, contentrepo.PublishOptions{
+			SourceReportPath:      cfg.CompetitorReportPath,
+			TitlePrefix:           "MITIGATED:",
+			RelatedPullRequestURL: result.PullRequestURL,
+			PRBodyExtraMarkdown:   mitigatedPRBody(riskReport),
+		})
+		if mitigationErr != nil {
+			return fmt.Errorf("create mitigated content pull request: %w", mitigationErr)
+		}
+		log.Printf("mitigated competitor content pull request created: url=%q branch=%q file=%q", mitigatedResult.PullRequestURL, mitigatedResult.Branch, mitigatedResult.FilePath)
+		for _, warning := range mitigatedResult.Warnings {
+			log.Printf("mitigated competitor content pull request warning: %s", warning)
+		}
+	}
 	return nil
+}
+
+func mitigatedPRBody(report contentrepo.SEORiskReport) string {
+	return strings.Join([]string{
+		"## Mitigated SEO Draft",
+		"",
+		"This companion PR was created because the original generated draft was marked risky. Merge either the original after human edits or this mitigated version, not both.",
+		"",
+		report.Markdown(),
+	}, "\n")
 }
 
 func isDuplicateContentError(err error) bool {
