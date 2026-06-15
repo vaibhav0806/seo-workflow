@@ -67,6 +67,12 @@ type Config struct {
 	OpenRouterTopicTimeoutSecs         int
 	OpenRouterDraftTimeoutSecs         int
 	CompetitorContentDraftLimit        int
+	ManualContentTitle                 string
+	ManualContentTheme                 string
+	ManualContentSlug                  string
+	ManualContentAngle                 string
+	ManualContentCompetitor            string
+	ManualContentEvidenceURLs          []string
 	NotionAPIKey                       string
 	NotionCompetitorReportParentPageID string
 	ContentRepo                        string
@@ -250,6 +256,12 @@ func Load() (*Config, error) {
 		cfg.OpenRouterFallbackModel = strings.TrimSpace(os.Getenv("OPENROUTER_FALLBACK_MODEL"))
 		cfg.OpenRouterDraftModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_MODEL"))
 		cfg.OpenRouterDraftFallbackModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_FALLBACK_MODEL"))
+		cfg.ManualContentTitle = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_TITLE"))
+		cfg.ManualContentTheme = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_THEME"))
+		cfg.ManualContentSlug = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_SLUG"))
+		cfg.ManualContentAngle = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_ANGLE"))
+		cfg.ManualContentCompetitor = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_COMPETITOR"))
+		cfg.ManualContentEvidenceURLs = parseListEnv(os.Getenv("CONTENT_MANUAL_EVIDENCE_URLS"))
 		topicTimeoutSecs, err := parsePositiveIntEnv("OPENROUTER_TOPIC_TIMEOUT_SEC", defaultOpenRouterTopicTimeout)
 		if err != nil {
 			return nil, err
@@ -288,6 +300,26 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseListEnv(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\t' || r == ';'
+	})
+	values := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
 }
 
 func parsePositiveIntEnv(key string, defaultValue int) (int, error) {

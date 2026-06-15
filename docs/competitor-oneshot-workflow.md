@@ -18,6 +18,7 @@ The slug analyzer remains a fallback when title fetching or LLM topic extraction
 - Replit (`https://replit.com/sitemap.xml`)
 - Emergent (`https://emergent.sh/sitemap.xml`)
 - StackAI (`https://www.stackai.com/sitemap.xml`)
+- Lyzr (`https://www.lyzr.ai/sitemap.xml`)
 
 ## 1) Required env vars
 
@@ -57,6 +58,19 @@ export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
 # default draft limit is 1; increase when you want more content PR drafts per run
 export OPENROUTER_DRAFT_TIMEOUT_SEC='360'
 export COMPETITOR_CONTENT_DRAFT_LIMIT='1'
+
+# optional manual content seed; when set, this title is drafted first and the
+# normal competitor opportunities remain available as fallback candidates
+export CONTENT_MANUAL_TITLE='Top AI Agent Platforms for Enterprise Teams in 2026'
+
+# optional manual seed controls
+# supported themes include comparison, usecases, enterprise, security,
+# integrations, workflow, agents, ai, vibecoding, deployment
+export CONTENT_MANUAL_THEME='comparison'
+export CONTENT_MANUAL_SLUG='top-ai-agent-platforms-enterprise-teams'
+export CONTENT_MANUAL_ANGLE='Rank enterprise agent platforms through a CreateOS deployment-control lens.'
+export CONTENT_MANUAL_COMPETITOR='lyzr'
+export CONTENT_MANUAL_EVIDENCE_URLS='https://www.lyzr.ai/blog/agents,https://www.stack-ai.com/blog/platforms'
 
 # optional generated cover image model
 export OPENROUTER_COVER_MODEL='google/gemini-2.5-flash-image'
@@ -110,5 +124,9 @@ go run ./cmd/worker
   - Generated blog frontmatter uses `destination: createos`.
   - Generated cover images are uploaded to Cloudinary when Cloudinary env vars are configured.
   - Without Cloudinary, generated cover assets are committed under `covers/` only when `CONTENT_COVER_ASSET_BASE_URL` points at a public CDN.
+- Optional manual content seed via `CONTENT_MANUAL_TITLE`.
+  - The workflow still fetches CreateOS and competitor sitemaps, reads CreateOS guidance docs, builds internal link candidates, generates the draft, generates/uploads the cover image, and opens the content PR through the same path.
+  - A plain `CONTENT_MANUAL_SLUG` becomes `/blogs/<slug>`; pass a path like `compare/foo` only when you intentionally want that route in the draft prompt.
+  - Keep `COMPETITOR_CONTENT_DRAFT_LIMIT=1` for a single manual article, or raise it when you want automatic competitor-gap drafts as fallback candidates.
 - Treat the report as a heuristic input, not a source of truth.
 - Prioritize exact URL evidence and ignore low-specificity phrases.

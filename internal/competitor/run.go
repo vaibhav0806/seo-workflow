@@ -199,6 +199,7 @@ var defaultCompetitors = []CompetitorTarget{
 	{Name: "replit", SitemapURL: "https://replit.com/sitemap.xml"},
 	{Name: "emergent", SitemapURL: "https://emergent.sh/sitemap.xml"},
 	{Name: "stackai", SitemapURL: "https://www.stackai.com/sitemap.xml"},
+	{Name: "lyzr", SitemapURL: "https://www.lyzr.ai/sitemap.xml"},
 }
 
 const (
@@ -307,6 +308,10 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		return opportunities[i].ImpactScore > opportunities[j].ImpactScore
 	})
 	contentPlan := buildContentRecommendations(opportunities)
+	if manualRecommendation, ok := manualContentRecommendationFromConfig(cfg); ok {
+		manualRecommendation = enrichManualContentEvidence(manualRecommendation, opportunities, extractedTopics, competitorSnapshots)
+		contentPlan = prependContentRecommendation(manualRecommendation, contentPlan)
+	}
 	if cfg.OpenRouterAPIKey != "" && len(contentPlan) > 0 {
 		draftModel := strings.TrimSpace(cfg.OpenRouterDraftModel)
 		if draftModel == "" {

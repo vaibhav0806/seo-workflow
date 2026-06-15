@@ -151,6 +151,69 @@ func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *tes
 	require.Zero(t, cloudinaryCalls, "cover upload must not run after duplicate content preflight fails")
 }
 
+func TestWriteCompetitorContentPullRequestSkipsDuplicateDraftAndPublishesNext(t *testing.T) {
+	oldTransport := http.DefaultTransport
+	var blogWrites []string
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.github.com" {
+			return nil, fmt.Errorf("unexpected request to %s", r.URL.String())
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/README.md":
+			return jsonResponse(http.StatusOK, `{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/test-post.md":
+			return jsonResponse(http.StatusOK, `{"sha":"existing-sha"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/next-post.md":
+			return jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/git/ref/heads/main":
+			return jsonResponse(http.StatusOK, `{"object":{"sha":"base-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/git/refs":
+			return jsonResponse(http.StatusCreated, `{}`), nil
+		case r.Method == http.MethodPut && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/next-post.md":
+			blogWrites = append(blogWrites, r.URL.Path)
+			return jsonResponse(http.StatusOK, `{"content":{"sha":"new-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			return jsonResponse(http.StatusCreated, `{"html_url":"https://github.com/NodeOps-app/createos-content/pull/50","number":50}`), nil
+		default:
+			return jsonResponse(http.StatusTeapot, `{"message":"unexpected github request"}`), nil
+		}
+	})
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	err := writeCompetitorContentPullRequest(context.Background(), &config.Config{
+		GitHubToken:       "ghp_test",
+		ContentRepo:       "NodeOps-app/createos-content",
+		ContentBaseBranch: "main",
+		ContentAuthor:     "CreateOS",
+		ContentCoverURL:   "https://example.com/default-cover.png",
+	}, competitor.Summary{
+		GeneratedAtUTC: "2026-05-22T10:30:00Z",
+		ContentPlan: []competitor.ContentRecommendation{
+			{
+				SuggestedTitle: "Test Post",
+				Draft: &competitor.BlogDraft{
+					Route:           "/blogs/test-post",
+					Title:           "Test Post",
+					MetaDescription: "Description",
+					BodyMarkdown:    "# Test Post\n\nBody",
+				},
+			},
+			{
+				SuggestedTitle: "Next Post",
+				Draft: &competitor.BlogDraft{
+					Route:           "/blogs/next-post",
+					Title:           "Next Post",
+					MetaDescription: "Description",
+					BodyMarkdown:    "# Next Post\n\nBody",
+				},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"/repos/NodeOps-app/createos-content/contents/blogs/next-post.md"}, blogWrites)
+}
+
 func TestNewCoverUploaderFromConfigRequiresAllCloudinaryCredentials(t *testing.T) {
 	require.Nil(t, newCoverUploaderFromConfig(&config.Config{
 		CloudinaryAPIKey:       "cloudinary-key",

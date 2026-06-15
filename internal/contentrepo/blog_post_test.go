@@ -40,6 +40,28 @@ func TestBuildBlogPostUsesContentRepoFrontmatterContract(t *testing.T) {
 	require.Contains(t, markdown, "# From Idea to Working MVP")
 }
 
+func TestBuildBlogPostLocksManualRecommendationTitle(t *testing.T) {
+	generatedAt := time.Date(2026, 6, 15, 9, 30, 1, 0, time.UTC)
+	post, err := BuildBlogPost(competitor.ContentRecommendation{
+		Opportunity:    "Manual content request: Top AI App Builders for Production-Ready Apps",
+		Theme:          "comparison",
+		PageType:       "comparison page",
+		Pillar:         "AI builder comparisons",
+		ContentAngle:   "Rank AI app builders for production readiness.",
+		SuggestedTitle: "Top AI App Builders for Production-Ready Apps",
+		Draft: &competitor.BlogDraft{
+			Route:           "/blogs/ai-app-builders-production-ready-apps",
+			Title:           "AI App Builders Ship Fast. Most Fall Apart in Production.",
+			MetaDescription: "Compare AI app builders by production readiness.",
+			BodyMarkdown:    "# AI App Builders Ship Fast. Most Fall Apart in Production.\n\nCreateOS keeps the work production-ready.",
+		},
+	}, generatedAt, "CreateOS", "https://example.com/cover.png")
+
+	require.NoError(t, err)
+	require.Equal(t, "Top AI App Builders for Production-Ready Apps", post.Title)
+	require.Contains(t, post.Markdown(), `title: "Top AI App Builders for Production-Ready Apps"`)
+}
+
 func TestBuildBlogPostRequiresDraft(t *testing.T) {
 	_, err := BuildBlogPost(competitor.ContentRecommendation{}, time.Now(), "CreateOS", "https://example.com/cover.png")
 

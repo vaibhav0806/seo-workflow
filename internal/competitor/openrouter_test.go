@@ -111,6 +111,36 @@ func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
 	require.Contains(t, prompt, "Do not create external citation plans or third-party backlink outreach ideas")
 }
 
+func TestDraftPromptInputLocksManualTitle(t *testing.T) {
+	input := draftPromptInput([]ContentRecommendation{
+		{
+			Opportunity:    "Manual content request: Top AI App Builders for Production-Ready Apps",
+			SuggestedSlug:  "/blogs/ai-app-builders-production-ready-apps",
+			SuggestedTitle: "Top AI App Builders for Production-Ready Apps",
+		},
+	}, 1, nil)
+
+	require.Len(t, input, 1)
+	require.True(t, input[0].LockTitle)
+}
+
+func TestNormalizeBlogDraftBriefForItemLocksManualTitle(t *testing.T) {
+	brief := normalizeBlogDraftBriefForItem(BlogDraft{
+		Route:               "/blogs/ai-app-builders-production-ready-apps",
+		Title:               "AI App Builders Ship Fast. Most Fall Apart in Production.",
+		TitleOptions:        []string{"AI App Builders Ship Fast. Most Fall Apart in Production."},
+		SelectedTitleReason: "Punchier",
+	}, blogDraftPromptItem{
+		Route:     "/blogs/ai-app-builders-production-ready-apps",
+		Title:     "Top AI App Builders for Production-Ready Apps",
+		LockTitle: true,
+	})
+
+	require.Equal(t, "Top AI App Builders for Production-Ready Apps", brief.Title)
+	require.Equal(t, "Manual title locked for search discoverability.", brief.SelectedTitleReason)
+	require.Equal(t, "Top AI App Builders for Production-Ready Apps", brief.TitleOptions[0])
+}
+
 func TestBlogDraftBriefPromptRequestsSmallJSONOnly(t *testing.T) {
 	prompt := blogDraftBriefUserPrompt(
 		[]byte(`{"recommendations":[]}`),

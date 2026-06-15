@@ -32,6 +32,9 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 	}
 	draft := *recommendation.Draft
 	title := strings.TrimSpace(draft.Title)
+	if competitor.IsManualContentRecommendation(recommendation) && strings.TrimSpace(recommendation.SuggestedTitle) != "" {
+		title = strings.TrimSpace(recommendation.SuggestedTitle)
+	}
 	if title == "" {
 		title = strings.TrimSpace(recommendation.SuggestedTitle)
 	}

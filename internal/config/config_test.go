@@ -187,6 +187,8 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, "createos/blog-covers", cfg.CloudinaryUploadFolder)
 	require.Empty(t, cfg.CompetitorStatePath)
 	require.Empty(t, cfg.AEOObservationsPath)
+	require.Empty(t, cfg.ManualContentTitle)
+	require.Empty(t, cfg.ManualContentEvidenceURLs)
 }
 
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
@@ -218,6 +220,12 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("CLOUDINARY_API_KEY", "cloudinary-key")
 	t.Setenv("CLOUDINARY_API_SECRET", "cloudinary-secret")
 	t.Setenv("CLOUDINARY_UPLOAD_FOLDER", "custom/covers")
+	t.Setenv("CONTENT_MANUAL_TITLE", "Top AI Agent Platforms for Enterprise Teams")
+	t.Setenv("CONTENT_MANUAL_THEME", "comparison")
+	t.Setenv("CONTENT_MANUAL_SLUG", "top-ai-agent-platforms")
+	t.Setenv("CONTENT_MANUAL_ANGLE", "Rank enterprise agent platforms through a CreateOS buyer lens.")
+	t.Setenv("CONTENT_MANUAL_COMPETITOR", "lyzr")
+	t.Setenv("CONTENT_MANUAL_EVIDENCE_URLS", "https://www.lyzr.ai/blog/agents, https://www.stack-ai.com/blog/platforms\nhttps://www.lyzr.ai/blog/agents")
 
 	cfg, err := Load()
 
@@ -250,6 +258,15 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "cloudinary-key", cfg.CloudinaryAPIKey)
 	require.Equal(t, "cloudinary-secret", cfg.CloudinaryAPISecret)
 	require.Equal(t, "custom/covers", cfg.CloudinaryUploadFolder)
+	require.Equal(t, "Top AI Agent Platforms for Enterprise Teams", cfg.ManualContentTitle)
+	require.Equal(t, "comparison", cfg.ManualContentTheme)
+	require.Equal(t, "top-ai-agent-platforms", cfg.ManualContentSlug)
+	require.Equal(t, "Rank enterprise agent platforms through a CreateOS buyer lens.", cfg.ManualContentAngle)
+	require.Equal(t, "lyzr", cfg.ManualContentCompetitor)
+	require.Equal(t, []string{
+		"https://www.lyzr.ai/blog/agents",
+		"https://www.stack-ai.com/blog/platforms",
+	}, cfg.ManualContentEvidenceURLs)
 }
 
 func TestLoadCompetitorModeMissingRequiredEnv(t *testing.T) {
