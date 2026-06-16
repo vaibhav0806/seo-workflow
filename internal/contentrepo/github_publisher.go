@@ -59,6 +59,14 @@ type githubPRResponse struct {
 	Number  int    `json:"number"`
 }
 
+type githubPullRequestListItem struct {
+	Number int `json:"number"`
+}
+
+type githubPullRequestFile struct {
+	Filename string `json:"filename"`
+}
+
 func NewGitHubPublisher(token string, repo string, baseBranch string, reviewer string) *GitHubPublisher {
 	return &GitHubPublisher{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
@@ -111,6 +119,11 @@ func (publisher *GitHubPublisher) validateCanPublish(ctx context.Context, post B
 		return publishPreflight{}, err
 	} else if sha != "" {
 		return publishPreflight{}, fmt.Errorf("content file already exists on %s: %s", baseBranch, path)
+	}
+	if prNumber, err := publisher.findOpenPullRequestWithFile(ctx, owner, repo, path); err != nil {
+		return publishPreflight{}, err
+	} else if prNumber != 0 {
+		return publishPreflight{}, fmt.Errorf("content file already exists in open PR #%d: %s", prNumber, path)
 	}
 
 	return publishPreflight{owner: owner, repo: repo, baseBranch: baseBranch, path: path}, nil
@@ -371,6 +384,30 @@ func (publisher *GitHubPublisher) fetchContent(ctx context.Context, owner string
 		return "", fmt.Errorf("decode content: %w", err)
 	}
 	return string(content), nil
+}
+
+func (publisher *GitHubPublisher) findOpenPullRequestWithFile(ctx context.Context, owner string, repo string, path string) (int, error) {
+	var pulls []githubPullRequestListItem
+	requestURL := fmt.Sprintf("%s/repos/%s/%s/pulls?state=open&per_page=50", githubAPIBase, owner, repo)
+	if err := publisher.requestJSON(ctx, http.MethodGet, requestURL, nil, &pulls); err != nil {
+		return 0, fmt.Errorf("fetch open pull requests: %w", err)
+	}
+	for _, pull := range pulls {
+		if pull.Number == 0 {
+			continue
+		}
+		var files []githubPullRequestFile
+		requestURL := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/files?per_page=100", githubAPIBase, owner, repo, pull.Number)
+		if err := publisher.requestJSON(ctx, http.MethodGet, requestURL, nil, &files); err != nil {
+			return 0, fmt.Errorf("fetch open pull request #%d files: %w", pull.Number, err)
+		}
+		for _, file := range files {
+			if file.Filename == path {
+				return pull.Number, nil
+			}
+		}
+	}
+	return 0, nil
 }
 
 func (publisher *GitHubPublisher) putContent(ctx context.Context, owner string, repo string, path string, branch string, sha string, content string, message string) error {

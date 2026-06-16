@@ -34,6 +34,8 @@ func TestGitHubPublisherPublishesBlogPR(t *testing.T) {
 			_, _ = w.Write([]byte(`{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/test-post.md":
 			http.Error(w, "not found", http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			_, _ = w.Write([]byte(`[]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/git/ref/heads/main":
 			_, _ = w.Write([]byte(`{"object":{"sha":"base-sha"}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/git/refs":
@@ -127,6 +129,8 @@ func TestGitHubPublisherPublishesRiskyPRWithRiskReviewInBody(t *testing.T) {
 			_, _ = w.Write([]byte(`{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/risky-post.md":
 			http.Error(w, "not found", http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			_, _ = w.Write([]byte(`[]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/git/ref/heads/main":
 			_, _ = w.Write([]byte(`{"object":{"sha":"base-sha"}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/git/refs":
@@ -221,4 +225,42 @@ func TestGitHubPublisherValidateCanPublishRejectsExistingContentWithoutMutating(
 	for _, request := range requests {
 		require.Equal(t, http.MethodGet, request.Method, "preflight must not mutate content repo at %s", request.Path)
 	}
+}
+
+func TestGitHubPublisherValidateCanPublishRejectsOpenPRContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/README.md":
+			_, _ = w.Write([]byte(`{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/monitoring-agent.md":
+			http.Error(w, "not found", http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			_, _ = w.Write([]byte(`[{"number":58}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls/58/files":
+			_, _ = w.Write([]byte(`[{"filename":"blogs/monitoring-agent.md"}]`))
+		default:
+			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusTeapot)
+		}
+	}))
+	defer server.Close()
+
+	oldBase := githubAPIBase
+	githubAPIBase = server.URL
+	defer func() { githubAPIBase = oldBase }()
+
+	publisher := NewGitHubPublisher("ghp_test", "NodeOps-app/createos-content", "main", "")
+	publisher.httpClient = server.Client()
+	err := publisher.ValidateCanPublish(context.Background(), BlogPost{
+		Title:        "Monitoring Agent",
+		Slug:         "monitoring-agent",
+		Description:  "Description",
+		Author:       "CreateOS",
+		ReadTime:     "3 min",
+		Cover:        "https://example.com/cover.png",
+		PublishedAt:  time.Date(2026, 5, 12, 8, 0, 0, 0, time.UTC),
+		Destination:  "createos",
+		BodyMarkdown: "# Monitoring Agent\n\nBody",
+	})
+
+	require.EqualError(t, err, "content file already exists in open PR #58: blogs/monitoring-agent.md")
 }

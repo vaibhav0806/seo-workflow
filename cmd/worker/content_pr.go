@@ -113,7 +113,8 @@ func isDuplicateContentError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "content file already exists on ")
+	return strings.Contains(err.Error(), "content file already exists on ") ||
+		strings.Contains(err.Error(), "content file already exists in open PR #")
 }
 
 func newCoverUploaderFromConfig(cfg *config.Config) contentrepo.CoverUploader {
