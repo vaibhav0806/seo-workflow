@@ -59,6 +59,7 @@ func TestBuildBlogPostLocksManualRecommendationTitle(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "Top AI App Builders for Production-Ready Apps", post.Title)
+	require.Equal(t, "ai-app-builders-production-ready-apps", post.Slug)
 	require.Contains(t, post.Markdown(), `title: "Top AI App Builders for Production-Ready Apps"`)
 }
 

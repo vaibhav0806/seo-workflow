@@ -44,7 +44,11 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 		return BlogPost{}, fmt.Errorf("draft requires title and body")
 	}
 
-	slug := slugFromRoute(draft.Route)
+	route := draft.Route
+	if competitor.IsManualContentRecommendation(recommendation) && strings.TrimSpace(recommendation.SuggestedSlug) != "" {
+		route = recommendation.SuggestedSlug
+	}
+	slug := slugFromRoute(route)
 	if slug == "" {
 		slug = slugify(title)
 	}
