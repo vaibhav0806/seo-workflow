@@ -52,6 +52,18 @@ func TestManualContentRecommendationFromConfigSkipsEmptyTitle(t *testing.T) {
 	require.Empty(t, recommendation)
 }
 
+func TestManualContentSummaryBuildsOnlyTheRequestedRecommendation(t *testing.T) {
+	summary, err := ManualContentSummary(&config.Config{
+		ManualContentTitle: "MCP Server Security",
+		ManualContentTheme: "security",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, summary.ContentPlan, 1)
+	require.Equal(t, "MCP Server Security", summary.ContentPlan[0].SuggestedTitle)
+	require.Empty(t, summary.Competitors)
+}
+
 func TestPrependContentRecommendationRenumbersPriorities(t *testing.T) {
 	manual := ContentRecommendation{Priority: 99, SuggestedTitle: "Manual"}
 	recommendations := []ContentRecommendation{

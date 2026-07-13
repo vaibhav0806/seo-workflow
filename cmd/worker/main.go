@@ -69,6 +69,21 @@ func main() {
 		log.Printf("competitor oneshot complete")
 		return
 	}
+	if cfg.WorkerMode == "manual-content" {
+		log.Printf("manual content starting: title=%q", cfg.ManualContentTitle)
+		summary, runErr := competitor.RunManualContent(context.Background(), cfg)
+		if runErr != nil {
+			log.Fatalf("manual content workflow failed: %v", runErr)
+		}
+		if reportErr := writeCompetitorReport(cfg, summary); reportErr != nil {
+			log.Fatalf("failed to write manual content report: %v", reportErr)
+		}
+		if reportErr := writeCompetitorContentPullRequest(context.Background(), cfg, summary); reportErr != nil {
+			log.Fatalf("failed to create manual content pull request: %v", reportErr)
+		}
+		log.Printf("manual content complete")
+		return
+	}
 
 	log.Printf("worker bootstrap complete (standby mode), configured qpm=%d", cfg.ScanQPM)
 

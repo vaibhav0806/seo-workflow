@@ -191,6 +191,21 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Empty(t, cfg.ManualContentEvidenceURLs)
 }
 
+func TestLoadManualContentModeDoesNotRequireSitemap(t *testing.T) {
+	t.Setenv("WORKER_MODE", "manual-content")
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("COMPETITOR_REPORT_PATH", "tmp/manual-content-report.json")
+	t.Setenv("CONTENT_MANUAL_TITLE", "MCP Server Security")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "manual-content", cfg.WorkerMode)
+	require.Equal(t, "MCP Server Security", cfg.ManualContentTitle)
+}
+
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	setCompetitorEnv(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")

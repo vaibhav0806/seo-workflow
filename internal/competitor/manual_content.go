@@ -1,13 +1,53 @@
 package competitor
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nodeops/seo-workflow/internal/config"
 )
 
 const manualContentOpportunityPrefix = "Manual content request:"
+
+func ManualContentSummary(cfg *config.Config) (Summary, error) {
+	recommendation, ok := manualContentRecommendationFromConfig(cfg)
+	if !ok {
+		return Summary{}, fmt.Errorf("CONTENT_MANUAL_TITLE is required")
+	}
+	return Summary{
+		GeneratedAtUTC:  time.Now().UTC().Format(time.RFC3339),
+		ContentPlan:     []ContentRecommendation{recommendation},
+		OpenRouterModel: strings.TrimSpace(cfg.OpenRouterModel),
+	}, nil
+}
+
+func RunManualContent(ctx context.Context, cfg *config.Config) (Summary, error) {
+	summary, err := ManualContentSummary(cfg)
+	if err != nil {
+		return Summary{}, err
+	}
+
+	draftModel := strings.TrimSpace(cfg.OpenRouterDraftModel)
+	if draftModel == "" {
+		draftModel = cfg.OpenRouterModel
+	}
+	createOSContext, contextErr := readGuidanceFile(createOSContextPath)
+	if contextErr != nil {
+		summary.Warnings = append(summary.Warnings, fmt.Sprintf("createos context skipped: %v", contextErr))
+	}
+	guidelines, guidelinesErr := readGuidanceFile(createOSWritingGuidesPath)
+	if guidelinesErr != nil {
+		summary.Warnings = append(summary.Warnings, fmt.Sprintf("createos writing guidelines skipped: %v", guidelinesErr))
+	}
+	drafts, draftErr := generateContentDraftsWithOpenRouter(ctx, cfg.OpenRouterAPIKey, draftModel, cfg.OpenRouterDraftFallbackModel, summary.ContentPlan, 1, createOSContext, guidelines, cfg.OpenRouterDraftTimeoutSecs, nil)
+	if draftErr != nil {
+		return Summary{}, fmt.Errorf("generate manual content draft: %w", draftErr)
+	}
+	summary.ContentPlan = attachDraftsToContentRecommendations(summary.ContentPlan, drafts, 1)
+	return summary, nil
+}
 
 func IsManualContentRecommendation(recommendation ContentRecommendation) bool {
 	return strings.HasPrefix(strings.TrimSpace(recommendation.Opportunity), manualContentOpportunityPrefix)

@@ -216,7 +216,7 @@ func Load() (*Config, error) {
 			sort.Strings(missing)
 			return nil, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
 		}
-	case "oneshot-competitor":
+	case "oneshot-competitor", "manual-content":
 		cfg.OurSitemapURL = strings.TrimSpace(os.Getenv("OUR_SITEMAP_URL"))
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
 		cfg.CompetitorStatePath = strings.TrimSpace(os.Getenv("COMPETITOR_STATE_PATH"))
@@ -288,9 +288,23 @@ func Load() (*Config, error) {
 		}
 		cfg.HTTPTimeoutSecs = timeoutSecs
 
-		missing := make([]string, 0, 1)
-		if cfg.OurSitemapURL == "" {
+		missing := make([]string, 0, 4)
+		if cfg.WorkerMode == "oneshot-competitor" && cfg.OurSitemapURL == "" {
 			missing = append(missing, "OUR_SITEMAP_URL")
+		}
+		if cfg.WorkerMode == "manual-content" {
+			if cfg.ManualContentTitle == "" {
+				missing = append(missing, "CONTENT_MANUAL_TITLE")
+			}
+			if cfg.OpenRouterAPIKey == "" {
+				missing = append(missing, "OPENROUTER_API_KEY")
+			}
+			if cfg.GitHubToken == "" {
+				missing = append(missing, "GITHUB_TOKEN")
+			}
+			if cfg.CompetitorReportPath == "" {
+				missing = append(missing, "COMPETITOR_REPORT_PATH")
+			}
 		}
 		if len(missing) > 0 {
 			return nil, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
