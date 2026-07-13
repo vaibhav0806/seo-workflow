@@ -177,7 +177,7 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, 1, cfg.CompetitorContentDraftLimit)
 	require.Equal(t, "NodeOps-app/createos-content", cfg.ContentRepo)
 	require.Equal(t, "main", cfg.ContentBaseBranch)
-	require.Equal(t, "CreateOS", cfg.ContentAuthor)
+	require.Equal(t, "Naman Kabra", cfg.ContentAuthor)
 	require.Equal(t, "navedux,vaibhav0806", cfg.ContentReviewer)
 	require.NotEmpty(t, cfg.ContentCoverURL)
 	require.Equal(t, "google/gemini-2.5-flash-image", cfg.OpenRouterCoverModel)

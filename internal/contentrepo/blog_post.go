@@ -62,7 +62,7 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 
 	author = strings.TrimSpace(author)
 	if author == "" {
-		author = "CreateOS"
+		author = "Naman Kabra"
 	}
 	coverURL = strings.TrimSpace(coverURL)
 	if coverURL == "" {

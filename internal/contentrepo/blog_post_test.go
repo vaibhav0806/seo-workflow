@@ -62,6 +62,27 @@ func TestBuildBlogPostLocksManualRecommendationTitle(t *testing.T) {
 	require.Contains(t, post.Markdown(), `title: "Top AI App Builders for Production-Ready Apps"`)
 }
 
+func TestBuildBlogPostDefaultsAuthorToNamanKabra(t *testing.T) {
+	generatedAt := time.Date(2026, 6, 24, 9, 30, 1, 0, time.UTC)
+	post, err := BuildBlogPost(competitor.ContentRecommendation{
+		Theme:          "deployment",
+		PageType:       "blog post",
+		Pillar:         "AI agent deployment",
+		ContentAngle:   "Deploy AI agents without DevOps.",
+		SuggestedTitle: "How to Deploy an AI Agent",
+		Draft: &competitor.BlogDraft{
+			Route:           "/blogs/how-to-deploy-ai-agent",
+			Title:           "How to Deploy an AI Agent",
+			MetaDescription: "Learn how to deploy an AI agent end to end.",
+			BodyMarkdown:    "# How to Deploy an AI Agent\n\nDeployment needs runtime, state, and observability.",
+		},
+	}, generatedAt, "", "https://example.com/cover.png")
+
+	require.NoError(t, err)
+	require.Equal(t, "Naman Kabra", post.Author)
+	require.Contains(t, post.Markdown(), `author: "Naman Kabra"`)
+}
+
 func TestBuildBlogPostRequiresDraft(t *testing.T) {
 	_, err := BuildBlogPost(competitor.ContentRecommendation{}, time.Now(), "CreateOS", "https://example.com/cover.png")
 

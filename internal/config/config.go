@@ -18,7 +18,7 @@ const (
 	defaultSitemapPath            = "public/sitemap.xml"
 	defaultContentRepo            = "NodeOps-app/createos-content"
 	defaultContentBaseBranch      = "main"
-	defaultContentAuthor          = "CreateOS"
+	defaultContentAuthor          = "Naman Kabra"
 	defaultContentReviewer        = "navedux,vaibhav0806"
 	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
 	defaultOpenRouterCoverModel   = "google/gemini-2.5-flash-image"
