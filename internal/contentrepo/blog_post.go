@@ -22,6 +22,7 @@ type BlogPost struct {
 	Tags         []string
 	Cover        string
 	PublishedAt  time.Time
+	UpdatedAt    time.Time
 	Destination  string
 	BodyMarkdown string
 }
@@ -84,6 +85,7 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 		Tags:         tags,
 		Cover:        coverURL,
 		PublishedAt:  generatedAt.UTC(),
+		UpdatedAt:    generatedAt.UTC(),
 		Destination:  DestinationCreateOS,
 		BodyMarkdown: body,
 	}, nil
@@ -109,6 +111,7 @@ func (post BlogPost) Markdown() string {
 	lines = append(lines,
 		"cover: "+yamlQuote(post.Cover),
 		"published_at: "+yamlQuote(post.PublishedAt.UTC().Format("2006-01-02T15:04:05.000Z")),
+		"updated_at: "+yamlQuote(post.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z")),
 		"destination: "+post.Destination,
 		"---",
 		"",

@@ -204,6 +204,8 @@ func (publisher *GitHubPublisher) createPullRequest(ctx context.Context, owner s
 		"",
 		"Review checklist:",
 		"- Validate the generated cover image before merge.",
+		"- Confirm The short version answers the core query and the author plus both dates are present.",
+		"- Validate visible FAQs and any table are factual and materially useful.",
 		"- Validate product claims and brand voice.",
 		"- Confirm internal links are intentional.",
 		"- Team can merge when approval is complete; content repo deploy hooks will publish after merge.",
@@ -215,6 +217,11 @@ func (publisher *GitHubPublisher) createPullRequest(ctx context.Context, owner s
 		"- Slug: `" + post.Slug + "`",
 		"- Destination: `" + post.Destination + "`",
 		"- Published at: `" + post.PublishedAt.UTC().Format(time.RFC3339) + "`",
+		"- Updated at: `" + post.UpdatedAt.UTC().Format(time.RFC3339) + "`",
+		"",
+		"## Off-site proof opportunities",
+		"- Identify and verify one relevant cited roundup or partner/customer proof point.",
+		"- Identify a topical community discussion for a helpful human response, not automated outreach.",
 	}
 	if strings.TrimSpace(options.SourceReportPath) != "" {
 		body = append(body, "- Source report: `"+strings.TrimSpace(options.SourceReportPath)+"`")

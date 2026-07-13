@@ -96,19 +96,18 @@ func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
 		"Use Naman/CreateOS voice. Ban hype phrases like revolutionary and game-changing.",
 	)
 
-	require.Contains(t, prompt, "polished blog prose")
+	require.Contains(t, prompt, "polished prose")
 	require.Contains(t, prompt, "not an outline")
-	require.Contains(t, prompt, "Use bullets sparingly")
-	require.Contains(t, prompt, "Each H2 section should have 2-4 paragraphs")
+	require.Contains(t, prompt, "The short version")
+	require.Contains(t, prompt, "Frequently asked questions")
 	require.Contains(t, prompt, "Use the CreateOS context as positioning guidance")
 	require.Contains(t, prompt, "CreateOS is the workspace where ideas become applications.")
 	require.Contains(t, prompt, "Use the CreateOS writing guidelines as style and quality rules")
 	require.Contains(t, prompt, "Naman/CreateOS voice")
-	require.Contains(t, prompt, "content-repo-ready")
-	require.Contains(t, prompt, "honest tradeoffs section")
-	require.Contains(t, prompt, "Do not use em dashes")
+	require.Contains(t, prompt, "honest tradeoffs")
+	require.Contains(t, prompt, "decision/comparison table")
 	require.Contains(t, prompt, "markdown only")
-	require.Contains(t, prompt, "Do not create external citation plans or third-party backlink outreach ideas")
+	require.Contains(t, prompt, "Do not add external links or outreach ideas")
 }
 
 func TestDraftPromptInputLocksManualTitle(t *testing.T) {
