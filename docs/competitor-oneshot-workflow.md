@@ -72,9 +72,7 @@ export CONTENT_MANUAL_ANGLE='Rank enterprise agent platforms through a CreateOS 
 export CONTENT_MANUAL_COMPETITOR='lyzr'
 export CONTENT_MANUAL_EVIDENCE_URLS='https://www.lyzr.ai/blog/agents,https://www.stack-ai.com/blog/platforms'
 
-# optional generated cover image model
-export OPENROUTER_COVER_MODEL='google/gemini-2.5-flash-image'
-
+# generated covers use the local CreateOS design-system renderer
 # recommended public image hosting for generated covers
 # Cloudinary has a free plan; create a cloud and API key, then set:
 export CLOUDINARY_CLOUD_NAME='your-cloud-name'

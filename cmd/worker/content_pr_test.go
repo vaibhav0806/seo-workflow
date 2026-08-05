@@ -129,7 +129,6 @@ func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *tes
 		ContentAuthor:          "CreateOS",
 		ContentCoverURL:        "https://example.com/default-cover.png",
 		OpenRouterAPIKey:       "openrouter-key",
-		OpenRouterCoverModel:   "image-model",
 		CloudinaryCloudName:    "demo-cloud",
 		CloudinaryAPIKey:       "cloudinary-key",
 		CloudinaryAPISecret:    "cloudinary-secret",
@@ -381,8 +380,6 @@ func TestNewCoverUploaderFromConfigRequiresAllCloudinaryCredentials(t *testing.T
 
 func TestShouldGenerateCoverWithCloudinaryCredentialsAndEmptyAssetBaseURL(t *testing.T) {
 	cfg := &config.Config{
-		OpenRouterAPIKey:       "openrouter-key",
-		OpenRouterCoverModel:   "image-model",
 		CloudinaryCloudName:    "demo-cloud",
 		CloudinaryAPIKey:       "cloudinary-key",
 		CloudinaryAPISecret:    "cloudinary-secret",
@@ -394,8 +391,6 @@ func TestShouldGenerateCoverWithCloudinaryCredentialsAndEmptyAssetBaseURL(t *tes
 
 func TestShouldGenerateCoverWithAssetBaseURLAndNoCloudinary(t *testing.T) {
 	cfg := &config.Config{
-		OpenRouterAPIKey:         "openrouter-key",
-		OpenRouterCoverModel:     "image-model",
 		ContentCoverAssetBaseURL: "https://cdn.example.com/createos-content",
 		CloudinaryUploadFolder:   "createos/blog-covers",
 	}
@@ -405,8 +400,6 @@ func TestShouldGenerateCoverWithAssetBaseURLAndNoCloudinary(t *testing.T) {
 
 func TestShouldGenerateCoverRequiresPublishTarget(t *testing.T) {
 	cfg := &config.Config{
-		OpenRouterAPIKey:       "openrouter-key",
-		OpenRouterCoverModel:   "image-model",
 		CloudinaryUploadFolder: "createos/blog-covers",
 	}
 

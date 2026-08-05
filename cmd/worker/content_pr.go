@@ -50,16 +50,14 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 func publishCompetitorContentPost(ctx context.Context, cfg *config.Config, publisher *contentrepo.GitHubPublisher, post contentrepo.BlogPost) error {
 	coverUploader := newCoverUploaderFromConfig(cfg)
 	coverAssets := []contentrepo.CoverAsset{}
-	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" && strings.TrimSpace(cfg.OpenRouterCoverModel) != "" {
-		if !shouldGenerateCover(cfg, coverUploader) {
-			log.Printf("competitor cover image generation skipped: configure Cloudinary credentials or CONTENT_COVER_ASSET_BASE_URL")
+	if !shouldGenerateCover(cfg, coverUploader) {
+		log.Printf("competitor cover image generation skipped: configure Cloudinary credentials or CONTENT_COVER_ASSET_BASE_URL")
+	} else {
+		cover, coverErr := contentrepo.GenerateDesignSystemCover(ctx, post, cfg.ContentCoverAssetBaseURL)
+		if coverErr != nil {
+			log.Printf("competitor cover image generation skipped: %v", coverErr)
 		} else {
-			cover, coverErr := contentrepo.GenerateOpenRouterCover(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterCoverModel, post, cfg.ContentCoverAssetBaseURL)
-			if coverErr != nil {
-				log.Printf("competitor cover image generation skipped: %v", coverErr)
-			} else {
-				coverAssets = applyGeneratedCover(ctx, &post, cover, coverUploader)
-			}
+			coverAssets = applyGeneratedCover(ctx, &post, cover, coverUploader)
 		}
 	}
 
@@ -132,9 +130,6 @@ func newCoverUploaderFromConfig(cfg *config.Config) contentrepo.CoverUploader {
 
 func shouldGenerateCover(cfg *config.Config, uploader contentrepo.CoverUploader) bool {
 	if cfg == nil {
-		return false
-	}
-	if strings.TrimSpace(cfg.OpenRouterAPIKey) == "" || strings.TrimSpace(cfg.OpenRouterCoverModel) == "" {
 		return false
 	}
 	return uploader != nil || strings.TrimSpace(cfg.ContentCoverAssetBaseURL) != ""

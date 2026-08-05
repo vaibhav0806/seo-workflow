@@ -21,7 +21,6 @@ const (
 	defaultContentAuthor          = "Naman Kabra"
 	defaultContentReviewer        = "navedux,vaibhav0806"
 	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
-	defaultOpenRouterCoverModel   = "google/gemini-2.5-flash-image"
 	defaultCloudinaryUploadFolder = "createos/blog-covers"
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
 	defaultWindowDays             = 30
@@ -81,7 +80,6 @@ type Config struct {
 	ContentReviewer                    string
 	ContentCoverURL                    string
 	ContentCoverAssetBaseURL           string
-	OpenRouterCoverModel               string
 	CloudinaryCloudName                string
 	CloudinaryAPIKey                   string
 	CloudinaryAPISecret                string
@@ -114,7 +112,6 @@ func Load() (*Config, error) {
 		ContentAuthor:               defaultContentAuthor,
 		ContentReviewer:             defaultContentReviewer,
 		ContentCoverURL:             defaultContentCoverURL,
-		OpenRouterCoverModel:        defaultOpenRouterCoverModel,
 		CloudinaryUploadFolder:      defaultCloudinaryUploadFolder,
 		CompetitorWindowDays:        defaultWindowDays,
 		OpenRouterTopicTimeoutSecs:  defaultOpenRouterTopicTimeout,
@@ -241,9 +238,6 @@ func Load() (*Config, error) {
 			cfg.ContentCoverURL = contentCoverURL
 		}
 		cfg.ContentCoverAssetBaseURL = strings.TrimSpace(os.Getenv("CONTENT_COVER_ASSET_BASE_URL"))
-		if coverModel := strings.TrimSpace(os.Getenv("OPENROUTER_COVER_MODEL")); coverModel != "" {
-			cfg.OpenRouterCoverModel = coverModel
-		}
 		cfg.CloudinaryCloudName = strings.TrimSpace(os.Getenv("CLOUDINARY_CLOUD_NAME"))
 		cfg.CloudinaryAPIKey = strings.TrimSpace(os.Getenv("CLOUDINARY_API_KEY"))
 		cfg.CloudinaryAPISecret = strings.TrimSpace(os.Getenv("CLOUDINARY_API_SECRET"))
