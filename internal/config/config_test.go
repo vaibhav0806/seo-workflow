@@ -71,6 +71,17 @@ func TestLoadOneshotModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, 1000, cfg.RowLimit)
 	require.Equal(t, 30, cfg.HTTPTimeoutSecs)
 	require.Equal(t, "public/sitemap.xml", cfg.GitHubSitemapPath)
+	require.Empty(t, cfg.PerformanceStatePath)
+}
+
+func TestLoadOneshotPerformanceStatePath(t *testing.T) {
+	setOneshotEnv(t)
+	t.Setenv("SEO_PERFORMANCE_STATE_PATH", "tmp/search-performance.json")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.Equal(t, "tmp/search-performance.json", cfg.PerformanceStatePath)
 }
 
 func TestLoadOneshotRequiresGitHubTokenWhenNotDryRun(t *testing.T) {
@@ -186,6 +197,8 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, "createos/blog-covers", cfg.CloudinaryUploadFolder)
 	require.Empty(t, cfg.CompetitorStatePath)
 	require.Empty(t, cfg.AEOObservationsPath)
+	require.Empty(t, cfg.ContentInventoryPath)
+	require.Empty(t, cfg.PerformanceStatePath)
 	require.Empty(t, cfg.ManualContentTitle)
 	require.Empty(t, cfg.ManualContentEvidenceURLs)
 }
@@ -215,6 +228,8 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("COMPETITOR_REPORT_PATH", "competitor-report.json")
 	t.Setenv("COMPETITOR_STATE_PATH", "tmp/competitor-state.json")
 	t.Setenv("AEO_OBSERVATIONS_PATH", "tmp/aeo-observations.csv")
+	t.Setenv("CONTENT_INVENTORY_PATH", "../createos-content")
+	t.Setenv("SEO_PERFORMANCE_STATE_PATH", "tmp/search-performance.json")
 	t.Setenv("COMPETITOR_WINDOW_DAYS", "14")
 	t.Setenv("COMPETITOR_HTTP_TIMEOUT_SEC", "45")
 	t.Setenv("OPENROUTER_TOPIC_TIMEOUT_SEC", "240")
@@ -252,6 +267,8 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "competitor-report.json", cfg.CompetitorReportPath)
 	require.Equal(t, "tmp/competitor-state.json", cfg.CompetitorStatePath)
 	require.Equal(t, "tmp/aeo-observations.csv", cfg.AEOObservationsPath)
+	require.Equal(t, "../createos-content", cfg.ContentInventoryPath)
+	require.Equal(t, "tmp/search-performance.json", cfg.PerformanceStatePath)
 	require.Equal(t, 14, cfg.CompetitorWindowDays)
 	require.Equal(t, 45, cfg.HTTPTimeoutSecs)
 	require.Equal(t, 240, cfg.OpenRouterTopicTimeoutSecs)

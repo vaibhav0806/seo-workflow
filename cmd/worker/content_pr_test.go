@@ -138,7 +138,7 @@ func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *tes
 		ContentPlan: []competitor.ContentRecommendation{{
 			SuggestedTitle: "Test Post",
 			Draft: &competitor.BlogDraft{
-				Route:           "/blog/test-post",
+				Route:           "/blogs/test-post",
 				Title:           "Test Post",
 				MetaDescription: "Description",
 				BodyMarkdown:    "# Test Post\n\nBody",

@@ -529,6 +529,9 @@ func draftPromptInput(recommendations []ContentRecommendation, limit int, intern
 		if len(items) == limit {
 			break
 		}
+		if recommendation.Decision != "" && recommendation.Decision != ContentDecisionCreate {
+			continue
+		}
 		route := strings.TrimSpace(recommendation.SuggestedSlug)
 		title := strings.TrimSpace(recommendation.SuggestedTitle)
 		if route == "" || title == "" {
@@ -583,6 +586,7 @@ func normalizeBlogDraftsAllowEmptyBody(drafts []BlogDraft, limit int) []BlogDraf
 }
 
 func normalizeBlogDraftBriefForItem(draft BlogDraft, item blogDraftPromptItem) BlogDraft {
+	draft.Route = strings.TrimSpace(item.Route)
 	if item.LockTitle {
 		draft.Title = strings.TrimSpace(item.Title)
 		draft.TitleOptions = normalizeTitleOptions(append([]string{item.Title}, draft.TitleOptions...), item.Title)

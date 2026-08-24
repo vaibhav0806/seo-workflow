@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	searchAnalyticsEndpoint = "https://searchconsole.googleapis.com/webmasters/v3/sites/%s/searchAnalytics/query"
-	urlInspectionEndpoint   = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
-	maxSitemapDepth         = 4
-	maxSitemapBytes         = 20 << 20
+	urlInspectionEndpoint = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
+	maxSitemapDepth       = 4
+	maxSitemapBytes       = 20 << 20
 )
+
+var searchAnalyticsEndpoint = "https://searchconsole.googleapis.com/webmasters/v3/sites/%s/searchAnalytics/query"
 
 type GSCAdapter struct {
 	httpClient   *http.Client
@@ -35,6 +36,7 @@ type GSCAdapter struct {
 
 	mu            sync.RWMutex
 	sitemapURLSet map[string]struct{}
+	performance   gsc.PerformanceSnapshot
 }
 
 type urlSetXML struct {
@@ -52,7 +54,10 @@ type sitemapIndexXML struct {
 type searchAnalyticsResponse struct {
 	Rows []struct {
 		Keys        []string `json:"keys"`
+		Clicks      float64  `json:"clicks"`
 		Impressions float64  `json:"impressions"`
+		CTR         float64  `json:"ctr"`
+		Position    float64  `json:"position"`
 	} `json:"rows"`
 }
 
@@ -152,6 +157,22 @@ func (a *GSCAdapter) Load(ctx context.Context, _ string) (string, error) {
 }
 
 func (a *GSCAdapter) querySearchAnalytics(ctx context.Context, property string) ([]gsc.URLMetric, error) {
+	rows, startDate, endDate, err := a.querySearchPerformance(ctx, property)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.performance = gsc.PerformanceSnapshot{
+		GeneratedAtUTC: time.Now().UTC().Format(time.RFC3339),
+		StartDate:      startDate,
+		EndDate:        endDate,
+		Rows:           append([]gsc.PerformanceMetric(nil), rows...),
+	}
+	a.mu.Unlock()
+	return aggregatePerformanceURLs(rows), nil
+}
+
+func (a *GSCAdapter) querySearchPerformance(ctx context.Context, property string) ([]gsc.PerformanceMetric, string, string, error) {
 	today := time.Now().UTC()
 	endDate := today.AddDate(0, 0, -2)
 	if a.lookbackDays == 1 {
@@ -159,53 +180,92 @@ func (a *GSCAdapter) querySearchAnalytics(ctx context.Context, property string) 
 	}
 	startDate := endDate.AddDate(0, 0, -(a.lookbackDays - 1))
 
-	payload, err := json.Marshal(map[string]any{
-		"startDate":  startDate.Format("2006-01-02"),
-		"endDate":    endDate.Format("2006-01-02"),
-		"dimensions": []string{"page"},
-		"rowLimit":   a.rowLimit,
-		"type":       "web",
+	startDateValue := startDate.Format("2006-01-02")
+	endDateValue := endDate.Format("2006-01-02")
+	metrics := make([]gsc.PerformanceMetric, 0)
+	for startRow := 0; ; startRow += a.rowLimit {
+		payload, err := json.Marshal(map[string]any{
+			"startDate":  startDateValue,
+			"endDate":    endDateValue,
+			"dimensions": []string{"date", "query", "page"},
+			"rowLimit":   a.rowLimit,
+			"startRow":   startRow,
+			"type":       "web",
+		})
+		if err != nil {
+			return nil, "", "", fmt.Errorf("marshal search analytics request: %w", err)
+		}
+
+		endpoint := fmt.Sprintf(searchAnalyticsEndpoint, url.PathEscape(property))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			return nil, "", "", fmt.Errorf("build search analytics request: %w", err)
+		}
+		request.Header.Set("Authorization", "Bearer "+a.accessToken)
+		request.Header.Set("Content-Type", "application/json")
+
+		response, err := a.httpClient.Do(request)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("execute search analytics request: %w", err)
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+			response.Body.Close()
+			return nil, "", "", fmt.Errorf("search analytics api status=%d body=%q", response.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var parsed searchAnalyticsResponse
+		decodeErr := json.NewDecoder(response.Body).Decode(&parsed)
+		response.Body.Close()
+		if decodeErr != nil {
+			return nil, "", "", fmt.Errorf("decode search analytics response: %w", decodeErr)
+		}
+		for _, row := range parsed.Rows {
+			if len(row.Keys) < 3 {
+				continue
+			}
+			metric := gsc.PerformanceMetric{
+				Date: strings.TrimSpace(row.Keys[0]), Query: strings.TrimSpace(row.Keys[1]), Page: strings.TrimSpace(row.Keys[2]),
+				Clicks: row.Clicks, Impressions: row.Impressions, CTR: row.CTR, Position: row.Position,
+			}
+			if metric.Query != "" && metric.Page != "" {
+				metrics = append(metrics, metric)
+			}
+		}
+		if len(parsed.Rows) < a.rowLimit {
+			break
+		}
+	}
+	return metrics, startDateValue, endDateValue, nil
+}
+
+func (a *GSCAdapter) PerformanceSnapshot() gsc.PerformanceSnapshot {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	snapshot := a.performance
+	snapshot.Rows = append([]gsc.PerformanceMetric(nil), snapshot.Rows...)
+	return snapshot
+}
+
+func aggregatePerformanceURLs(rows []gsc.PerformanceMetric) []gsc.URLMetric {
+	impressions := make(map[string]float64)
+	for _, row := range rows {
+		page := strings.TrimSpace(row.Page)
+		if page != "" {
+			impressions[page] += row.Impressions
+		}
+	}
+	metrics := make([]gsc.URLMetric, 0, len(impressions))
+	for page, total := range impressions {
+		metrics = append(metrics, gsc.URLMetric{URL: page, Impressions: int64(total)})
+	}
+	sort.Slice(metrics, func(i, j int) bool {
+		if metrics[i].Impressions == metrics[j].Impressions {
+			return metrics[i].URL < metrics[j].URL
+		}
+		return metrics[i].Impressions > metrics[j].Impressions
 	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal search analytics request: %w", err)
-	}
-
-	endpoint := fmt.Sprintf(searchAnalyticsEndpoint, url.PathEscape(property))
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("build search analytics request: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+a.accessToken)
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := a.httpClient.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("execute search analytics request: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("search analytics api status=%d body=%q", response.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var parsed searchAnalyticsResponse
-	if err := json.NewDecoder(response.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("decode search analytics response: %w", err)
-	}
-
-	metrics := make([]gsc.URLMetric, 0, len(parsed.Rows))
-	for _, row := range parsed.Rows {
-		if len(row.Keys) == 0 {
-			continue
-		}
-		pageURL := strings.TrimSpace(row.Keys[0])
-		if pageURL == "" {
-			continue
-		}
-		metrics = append(metrics, gsc.URLMetric{URL: pageURL, Impressions: int64(row.Impressions)})
-	}
-	return metrics, nil
+	return metrics
 }
 
 func (a *GSCAdapter) fetchSitemapURLs(

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/nodeops/seo-workflow/internal/config"
+	"github.com/nodeops/seo-workflow/internal/gsc"
 	"github.com/nodeops/seo-workflow/internal/ratelimit"
 	"github.com/nodeops/seo-workflow/internal/scan"
 )
@@ -36,5 +37,26 @@ func Run(ctx context.Context, cfg *config.Config) (scan.Summary, error) {
 	if err != nil {
 		return scan.Summary{}, err
 	}
+	performance, err := updatePerformanceFeedback(cfg.PerformanceStatePath, gscAdapter.PerformanceSnapshot())
+	if err != nil {
+		return scan.Summary{}, err
+	}
+	summary.Performance = performance
 	return summary, nil
+}
+
+func updatePerformanceFeedback(path string, current gsc.PerformanceSnapshot) (gsc.PerformanceReport, error) {
+	state, err := gsc.LoadPerformanceState(path)
+	if err != nil {
+		return gsc.PerformanceReport{}, err
+	}
+	var previous gsc.PerformanceSnapshot
+	if len(state.Snapshots) > 0 {
+		previous = state.Snapshots[len(state.Snapshots)-1]
+	}
+	report := gsc.AnalyzePerformance(current, previous)
+	if err := gsc.SavePerformanceState(path, gsc.AppendPerformanceSnapshot(state, current)); err != nil {
+		return gsc.PerformanceReport{}, err
+	}
+	return report, nil
 }

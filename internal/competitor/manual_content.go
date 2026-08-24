@@ -28,6 +28,11 @@ func RunManualContent(ctx context.Context, cfg *config.Config) (Summary, error) 
 	if err != nil {
 		return Summary{}, err
 	}
+	summary.ContentPlan, summary.InventoryReport, summary.Warnings = applyConfiguredInventory(ctx, cfg, summary.ContentPlan)
+	if len(summary.ContentPlan) == 0 || summary.ContentPlan[0].Decision != ContentDecisionCreate {
+		summary.RefreshQueue = buildRefreshRecommendations(summary.ContentPlan)
+		return summary, nil
+	}
 
 	draftModel := strings.TrimSpace(cfg.OpenRouterDraftModel)
 	if draftModel == "" {
@@ -83,6 +88,10 @@ func manualContentRecommendationFromConfig(cfg *config.Config) (ContentRecommend
 		TargetIntent:   intentForTheme(theme),
 		ContentAngle:   angle,
 		Pillar:         pillarForTheme(theme),
+		PrimaryKeyword: strings.Join(filteredTokens(title), " "),
+		SecondaryKeywords: secondaryKeywordsForRecommendation(
+			strings.Join(filteredTokens(title), " "), theme, competitor,
+		),
 		ClusterPages:   clusterPagesForOpportunity(title, theme, competitor),
 		SourceEvidence: limitStrings(cfg.ManualContentEvidenceURLs, 8),
 	}, true
@@ -105,10 +114,15 @@ func manualContentSlug(rawSlug string, title string) string {
 	if slug == "" {
 		return "/blogs/" + safeSlug(title)
 	}
-	if strings.Contains(slug, "/") {
-		return "/" + slug
+	if idx := strings.LastIndex(slug, "/"); idx >= 0 {
+		slug = slug[idx+1:]
 	}
-	return "/blogs/" + safeSlug(slug)
+	slug = tokenSplitPattern.ReplaceAllString(strings.ToLower(slug), "-")
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		slug = safeSlug(title)
+	}
+	return "/blogs/" + slug
 }
 
 func prependContentRecommendation(manual ContentRecommendation, recommendations []ContentRecommendation) []ContentRecommendation {

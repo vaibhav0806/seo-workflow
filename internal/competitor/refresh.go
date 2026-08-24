@@ -59,7 +59,7 @@ func refreshReasonForTheme(theme string) string {
 	case "agents", "ai", "workflow":
 		return "AI agent and workflow automation topics are volatile and need freshness signals."
 	case "integrations", "pricing":
-		return "Integration and pricing pages change often enough to require scheduled review."
+		return "Integration and pricing blogs change often enough to require scheduled review."
 	default:
 		return "Refresh when rankings or competitor coverage changes."
 	}

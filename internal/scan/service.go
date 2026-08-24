@@ -50,6 +50,7 @@ type Summary struct {
 	BucketCounts   map[string]int
 	PullRequestURL string
 	Findings       []Finding
+	Performance    gsc.PerformanceReport
 }
 
 // Finding captures the per-URL diagnostic result for reporting.

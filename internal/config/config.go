@@ -40,24 +40,26 @@ type Config struct {
 	GitHubInstallationID string
 	ScanQPM              int
 
-	ScanProperty      string
-	ScanRepo          string
-	ScanSitemapURL    string
-	GSCAccessToken    string
-	GitHubToken       string
-	GitHubBaseBranch  string
-	GitHubSitemapPath string
-	OneshotReportPath string
-	DryRun            bool
-	LookbackDays      int
-	RowLimit          int
-	HTTPTimeoutSecs   int
+	ScanProperty         string
+	ScanRepo             string
+	ScanSitemapURL       string
+	GSCAccessToken       string
+	GitHubToken          string
+	GitHubBaseBranch     string
+	GitHubSitemapPath    string
+	OneshotReportPath    string
+	PerformanceStatePath string
+	DryRun               bool
+	LookbackDays         int
+	RowLimit             int
+	HTTPTimeoutSecs      int
 
 	CompetitorReportPath               string
 	CompetitorStatePath                string
 	CompetitorWindowDays               int
 	OurSitemapURL                      string
 	AEOObservationsPath                string
+	ContentInventoryPath               string
 	OpenRouterAPIKey                   string
 	OpenRouterModel                    string
 	OpenRouterFallbackModel            string
@@ -166,6 +168,7 @@ func Load() (*Config, error) {
 			cfg.GitHubSitemapPath = overridePath
 		}
 		cfg.OneshotReportPath = strings.TrimSpace(os.Getenv("ONESHOT_REPORT_PATH"))
+		cfg.PerformanceStatePath = strings.TrimSpace(os.Getenv("SEO_PERFORMANCE_STATE_PATH"))
 
 		if rawDryRun := strings.TrimSpace(os.Getenv("WORKER_DRY_RUN")); rawDryRun != "" {
 			parsedDryRun, err := strconv.ParseBool(rawDryRun)
@@ -218,6 +221,8 @@ func Load() (*Config, error) {
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
 		cfg.CompetitorStatePath = strings.TrimSpace(os.Getenv("COMPETITOR_STATE_PATH"))
 		cfg.AEOObservationsPath = strings.TrimSpace(os.Getenv("AEO_OBSERVATIONS_PATH"))
+		cfg.ContentInventoryPath = strings.TrimSpace(os.Getenv("CONTENT_INVENTORY_PATH"))
+		cfg.PerformanceStatePath = strings.TrimSpace(os.Getenv("SEO_PERFORMANCE_STATE_PATH"))
 		cfg.OpenRouterAPIKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 		cfg.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 		cfg.NotionAPIKey = strings.TrimSpace(os.Getenv("NOTION_API_KEY"))

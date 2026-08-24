@@ -1,6 +1,9 @@
 package competitor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nodeops/seo-workflow/internal/config"
@@ -17,13 +20,35 @@ func TestManualContentRecommendationFromConfigUsesTitleAndDefaults(t *testing.T)
 	require.Equal(t, "Manual content request: Top AI Agent Platforms for Enterprise Teams", recommendation.Opportunity)
 	require.Equal(t, "manual", recommendation.Competitor)
 	require.Equal(t, "enterprise", recommendation.Theme)
-	require.Equal(t, "solution landing page", recommendation.PageType)
+	require.Equal(t, "enterprise guide blog", recommendation.PageType)
 	require.Equal(t, "/blogs/ai-agent-platforms-for-enterprise-teams", recommendation.SuggestedSlug)
 	require.Equal(t, "Top AI Agent Platforms for Enterprise Teams", recommendation.SuggestedTitle)
 	require.Equal(t, "enterprise trust evaluation", recommendation.TargetIntent)
 	require.Equal(t, "Enterprise AI development", recommendation.Pillar)
+	require.Equal(t, "ai agent platforms for enterprise teams", recommendation.PrimaryKeyword)
+	require.NotEmpty(t, recommendation.SecondaryKeywords)
 	require.NotEmpty(t, recommendation.ContentAngle)
 	require.Len(t, recommendation.ClusterPages, 3)
+}
+
+func TestRunManualContentReturnsRefreshWithoutDraftingDuplicate(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, "blogs"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "blogs", "mcp-server-security.md"), []byte(`---
+title: MCP Server Security
+slug: mcp-server-security
+primary_keyword: mcp server security
+---
+# MCP Server Security
+`), 0o644))
+
+	summary, err := RunManualContent(context.Background(), &config.Config{
+		ManualContentTitle: "MCP Server Security", ContentInventoryPath: root,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, ContentDecisionRefresh, summary.ContentPlan[0].Decision)
+	require.Nil(t, summary.ContentPlan[0].Draft)
 }
 
 func TestManualContentRecommendationFromConfigUsesOverrides(t *testing.T) {
@@ -39,10 +64,15 @@ func TestManualContentRecommendationFromConfigUsesOverrides(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "lyzr", recommendation.Competitor)
 	require.Equal(t, "comparison", recommendation.Theme)
-	require.Equal(t, "comparison page", recommendation.PageType)
+	require.Equal(t, "comparison blog", recommendation.PageType)
 	require.Equal(t, "/blogs/top-ai-agent-platforms", recommendation.SuggestedSlug)
 	require.Equal(t, "Compare enterprise agent platforms through CreateOS deployment control.", recommendation.ContentAngle)
 	require.Equal(t, []string{"https://www.lyzr.ai/blog/agents", "https://www.stack-ai.com/blog/platforms"}, recommendation.SourceEvidence)
+}
+
+func TestManualContentSlugNormalizesEveryInputToBlogs(t *testing.T) {
+	require.Equal(t, "/blogs/ai-app-builders", manualContentSlug("compare/ai-app-builders", "ignored"))
+	require.Equal(t, "/blogs/ai-app-builders", manualContentSlug("/blogs/ai-app-builders", "ignored"))
 }
 
 func TestManualContentRecommendationFromConfigSkipsEmptyTitle(t *testing.T) {

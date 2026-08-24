@@ -43,6 +43,13 @@ export COMPETITOR_REPORT_PATH='competitor-report.json'
 # first run establishes a baseline; later runs treat newly observed URLs as fresh
 export COMPETITOR_STATE_PATH='tmp/competitor-state.json'
 
+# full createos-content inventory used before drafting; local checkout is fastest
+# when omitted, the configured GitHub content repo is downloaded using GITHUB_TOKEN
+export CONTENT_INVENTORY_PATH='../createos-content'
+
+# state written by WORKER_MODE=oneshot and consumed by competitor recommendations
+export SEO_PERFORMANCE_STATE_PATH='tmp/search-performance.json'
+
 # optional future manual/provider export for AI citation observations
 export AEO_OBSERVATIONS_PATH='tmp/aeo-observations.csv'
 
@@ -50,7 +57,7 @@ export AEO_OBSERVATIONS_PATH='tmp/aeo-observations.csv'
 export OPENROUTER_API_KEY='sk-or-...'
 export OPENROUTER_MODEL='moonshotai/kimi-k2'
 
-# optional separate model for generated blog/page drafts
+# optional separate model for generated blog drafts
 # examples: qwen/qwen3.6-flash, qwen/qwen3.6-27b, moonshotai/kimi-k2.5
 export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
 
@@ -116,17 +123,21 @@ go run ./cmd/worker
   - how to execute
   - impact score (1-100)
 - Optional JSON report file via `COMPETITOR_REPORT_PATH`.
-- Optional `refreshQueue` recommendations for volatile AI, comparison, workflow, integration, and pricing pages.
+- Full blog inventory and cannibalization findings via `inventoryReport`.
+- Search-performance opportunities and query cannibalization via `searchPerformance` when `SEO_PERFORMANCE_STATE_PATH` is configured.
+- Optional `refreshQueue` recommendations for volatile AI, comparison, workflow, integration, and pricing blogs.
 - Optional `aeoReport.prompts` matrix for manual ChatGPT/Perplexity/Gemini citation checks.
 - Optional content repo PR when GitHub/content repo env vars are set.
   - Generated blog frontmatter uses `destination: createos`.
+  - Every publishable route is forced to `/blogs/<slug>`; existing commercial routes are never created or replaced by this workflow.
+  - Existing keyword ownership produces a refresh/consolidate decision instead of a duplicate blog draft.
   - Generated cover images are uploaded to Cloudinary when Cloudinary env vars are configured.
   - Without Cloudinary, generated cover assets are committed under `covers/` only when `CONTENT_COVER_ASSET_BASE_URL` points at a public CDN.
   - Every generated PR includes an automated SEO risk review in the PR body.
   - High or critical SEO risk creates a `RISKY:` original PR plus a `MITIGATED:` companion PR. Humans should merge only one.
 - Optional manual content seed via `CONTENT_MANUAL_TITLE`.
   - The workflow still fetches CreateOS and competitor sitemaps, reads CreateOS guidance docs, builds internal link candidates, generates the draft, generates/uploads the cover image, and opens the content PR through the same path.
-  - A plain `CONTENT_MANUAL_SLUG` becomes `/blogs/<slug>`; pass a path like `compare/foo` only when you intentionally want that route in the draft prompt.
+  - Any `CONTENT_MANUAL_SLUG` is normalized to `/blogs/<slug>`.
   - Keep `COMPETITOR_CONTENT_DRAFT_LIMIT=1` for a single manual article, or raise it when you want automatic competitor-gap drafts as fallback candidates.
 - Treat the report as a heuristic input, not a source of truth.
 - Prioritize exact URL evidence and ignore low-specificity phrases.

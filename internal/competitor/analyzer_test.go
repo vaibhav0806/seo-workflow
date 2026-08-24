@@ -317,8 +317,8 @@ func TestDeriveTopicOpportunitiesBuildsActionableWhatToDo(t *testing.T) {
 	opportunities := deriveTopicOpportunities(ours, topics)
 
 	require.Len(t, opportunities, 1)
-	require.Contains(t, opportunities[0].WhatToDo, "comparison page")
-	require.Contains(t, opportunities[0].WhatToDo, "/compare/ai-tool-comparison-benchmarking")
+	require.Contains(t, opportunities[0].WhatToDo, "comparison blog")
+	require.Contains(t, opportunities[0].WhatToDo, "/blogs/ai-tool-comparison-benchmarking")
 	require.NotContains(t, opportunities[0].WhatToDo, "Ship one focused page or article")
 	require.Contains(t, strings.Join(opportunities[0].HowToExecute, " "), "Cursor vs Bolt vs Lovable")
 }
@@ -349,11 +349,20 @@ func TestBuildContentRecommendationsCreatesClusterPlan(t *testing.T) {
 
 	require.Len(t, recommendations, 2)
 	require.Equal(t, 1, recommendations[0].Priority)
-	require.Equal(t, "comparison page", recommendations[0].PageType)
-	require.Equal(t, "/compare/ai-tool-comparison-benchmarking", recommendations[0].SuggestedSlug)
+	require.Equal(t, "comparison blog", recommendations[0].PageType)
+	require.Equal(t, "/blogs/ai-tool-comparison-benchmarking", recommendations[0].SuggestedSlug)
+	require.Equal(t, "ai tool comparison benchmarking", recommendations[0].PrimaryKeyword)
+	require.NotEmpty(t, recommendations[0].SecondaryKeywords)
 	require.NotEmpty(t, recommendations[0].ClusterPages)
-	require.Equal(t, "use-case landing page", recommendations[1].PageType)
-	require.Contains(t, recommendations[1].SuggestedSlug, "/use-cases/")
+	require.Equal(t, "use-case blog", recommendations[1].PageType)
+	require.Contains(t, recommendations[1].SuggestedSlug, "/blogs/")
+}
+
+func TestSuggestedSlugAlwaysUsesCreateOSBlogRoute(t *testing.T) {
+	themes := []string{"comparison", "usecases", "vibecoding", "enterprise", "security", "integrations", "workflow", "agents", "ai", "general"}
+	for _, theme := range themes {
+		require.Equal(t, "/blogs/example-topic", suggestedSlug("Example Topic", theme), theme)
+	}
 }
 
 func TestRecommendationCopyAvoidsDuplicatedIntentAndPreservesAcronyms(t *testing.T) {

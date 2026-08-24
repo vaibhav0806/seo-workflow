@@ -140,6 +140,18 @@ func TestNormalizeBlogDraftBriefForItemLocksManualTitle(t *testing.T) {
 	require.Equal(t, "Top AI App Builders for Production-Ready Apps", brief.TitleOptions[0])
 }
 
+func TestNormalizeBlogDraftBriefForItemPreservesRequestedBlogRoute(t *testing.T) {
+	brief := normalizeBlogDraftBriefForItem(BlogDraft{
+		Route: "/compare/ai-app-builders",
+		Title: "AI App Builders",
+	}, blogDraftPromptItem{
+		Route: "/blogs/ai-app-builders",
+		Title: "AI App Builders",
+	})
+
+	require.Equal(t, "/blogs/ai-app-builders", brief.Route)
+}
+
 func TestBlogDraftBriefPromptRequestsSmallJSONOnly(t *testing.T) {
 	prompt := blogDraftBriefUserPrompt(
 		[]byte(`{"recommendations":[]}`),

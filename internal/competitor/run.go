@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nodeops/seo-workflow/internal/config"
+	"github.com/nodeops/seo-workflow/internal/gsc"
 )
 
 type CompetitorTarget struct {
@@ -48,19 +49,25 @@ type Opportunity struct {
 }
 
 type ContentRecommendation struct {
-	Priority       int                         `json:"priority"`
-	Opportunity    string                      `json:"opportunity"`
-	Competitor     string                      `json:"competitor"`
-	Theme          string                      `json:"theme"`
-	PageType       string                      `json:"pageType"`
-	SuggestedSlug  string                      `json:"suggestedSlug"`
-	SuggestedTitle string                      `json:"suggestedTitle"`
-	TargetIntent   string                      `json:"targetIntent"`
-	ContentAngle   string                      `json:"contentAngle"`
-	Pillar         string                      `json:"pillar"`
-	ClusterPages   []ContentPageRecommendation `json:"clusterPages,omitempty"`
-	SourceEvidence []string                    `json:"sourceEvidence,omitempty"`
-	Draft          *BlogDraft                  `json:"draft,omitempty"`
+	Priority          int                         `json:"priority"`
+	Opportunity       string                      `json:"opportunity"`
+	Competitor        string                      `json:"competitor"`
+	Theme             string                      `json:"theme"`
+	PageType          string                      `json:"pageType"`
+	SuggestedSlug     string                      `json:"suggestedSlug"`
+	SuggestedTitle    string                      `json:"suggestedTitle"`
+	TargetIntent      string                      `json:"targetIntent"`
+	ContentAngle      string                      `json:"contentAngle"`
+	Pillar            string                      `json:"pillar"`
+	PrimaryKeyword    string                      `json:"primaryKeyword"`
+	SecondaryKeywords []string                    `json:"secondaryKeywords,omitempty"`
+	Decision          ContentDecision             `json:"decision,omitempty"`
+	ExistingRoute     string                      `json:"existingRoute,omitempty"`
+	DecisionReason    string                      `json:"decisionReason,omitempty"`
+	SearchSignals     []gsc.SearchOpportunity     `json:"searchSignals,omitempty"`
+	ClusterPages      []ContentPageRecommendation `json:"clusterPages,omitempty"`
+	SourceEvidence    []string                    `json:"sourceEvidence,omitempty"`
+	Draft             *BlogDraft                  `json:"draft,omitempty"`
 }
 
 type BlogDraft struct {
@@ -110,19 +117,21 @@ type TopicSummary struct {
 }
 
 type Summary struct {
-	GeneratedAtUTC  string                  `json:"generatedAtUtc"`
-	WindowDays      int                     `json:"windowDays"`
-	WindowStartUTC  string                  `json:"windowStartUtc"`
-	OurSite         SiteSnapshot            `json:"ourSite"`
-	Competitors     []SiteSnapshot          `json:"competitors"`
-	ExtractedTopics []TopicSummary          `json:"extractedTopics,omitempty"`
-	Opportunities   []Opportunity           `json:"opportunities"`
-	ContentPlan     []ContentRecommendation `json:"recommendedContentPlan,omitempty"`
-	RefreshQueue    []RefreshRecommendation `json:"refreshQueue,omitempty"`
-	AEOReport       AEOReport               `json:"aeoReport,omitempty"`
-	Warnings        []string                `json:"warnings"`
-	OpenRouterModel string                  `json:"openRouterModel,omitempty"`
-	Debug           DebugSummary            `json:"debug,omitempty"`
+	GeneratedAtUTC    string                  `json:"generatedAtUtc"`
+	WindowDays        int                     `json:"windowDays"`
+	WindowStartUTC    string                  `json:"windowStartUtc"`
+	OurSite           SiteSnapshot            `json:"ourSite"`
+	Competitors       []SiteSnapshot          `json:"competitors"`
+	ExtractedTopics   []TopicSummary          `json:"extractedTopics,omitempty"`
+	Opportunities     []Opportunity           `json:"opportunities"`
+	ContentPlan       []ContentRecommendation `json:"recommendedContentPlan,omitempty"`
+	RefreshQueue      []RefreshRecommendation `json:"refreshQueue,omitempty"`
+	AEOReport         AEOReport               `json:"aeoReport,omitempty"`
+	InventoryReport   InventoryReport         `json:"inventoryReport,omitempty"`
+	SearchPerformance gsc.PerformanceReport   `json:"searchPerformance,omitempty"`
+	Warnings          []string                `json:"warnings"`
+	OpenRouterModel   string                  `json:"openRouterModel,omitempty"`
+	Debug             DebugSummary            `json:"debug,omitempty"`
 }
 
 type DebugSummary struct {
@@ -312,6 +321,13 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		manualRecommendation = enrichManualContentEvidence(manualRecommendation, opportunities, extractedTopics, competitorSnapshots)
 		contentPlan = prependContentRecommendation(manualRecommendation, contentPlan)
 	}
+	var inventoryReport InventoryReport
+	var inventoryWarnings []string
+	contentPlan, inventoryReport, inventoryWarnings = applyConfiguredInventory(ctx, cfg, contentPlan)
+	warnings = append(warnings, inventoryWarnings...)
+	searchPerformance, performanceWarnings := loadConfiguredPerformance(cfg.PerformanceStatePath)
+	warnings = append(warnings, performanceWarnings...)
+	contentPlan = applyPerformanceSignals(contentPlan, searchPerformance)
 	if cfg.OpenRouterAPIKey != "" && len(contentPlan) > 0 {
 		draftModel := strings.TrimSpace(cfg.OpenRouterDraftModel)
 		if draftModel == "" {
@@ -342,19 +358,21 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	}
 
 	return Summary{
-		GeneratedAtUTC:  time.Now().UTC().Format(time.RFC3339),
-		WindowDays:      cfg.CompetitorWindowDays,
-		WindowStartUTC:  windowStart.Format(time.RFC3339),
-		OurSite:         ourSnapshot,
-		Competitors:     competitorSnapshots,
-		ExtractedTopics: extractedTopics,
-		Opportunities:   opportunities,
-		ContentPlan:     contentPlan,
-		RefreshQueue:    refreshQueue,
-		AEOReport:       aeoReport,
-		Warnings:        warnings,
-		OpenRouterModel: strings.TrimSpace(cfg.OpenRouterModel),
-		Debug:           debug,
+		GeneratedAtUTC:    time.Now().UTC().Format(time.RFC3339),
+		WindowDays:        cfg.CompetitorWindowDays,
+		WindowStartUTC:    windowStart.Format(time.RFC3339),
+		OurSite:           ourSnapshot,
+		Competitors:       competitorSnapshots,
+		ExtractedTopics:   extractedTopics,
+		Opportunities:     opportunities,
+		ContentPlan:       contentPlan,
+		RefreshQueue:      refreshQueue,
+		AEOReport:         aeoReport,
+		InventoryReport:   inventoryReport,
+		SearchPerformance: searchPerformance,
+		Warnings:          warnings,
+		OpenRouterModel:   strings.TrimSpace(cfg.OpenRouterModel),
+		Debug:             debug,
 	}, nil
 }
 
