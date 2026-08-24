@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nodeops/seo-workflow/internal/competitor"
@@ -13,6 +15,19 @@ func TestWriteCompetitorNotionReportSkipsWhenUnconfigured(t *testing.T) {
 	err := writeCompetitorNotionReport(context.Background(), &config.Config{}, competitor.Summary{})
 
 	require.NoError(t, err)
+}
+
+func TestWriteCompetitorReportCreatesParentDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "competitor-report.json")
+
+	err := writeCompetitorReport(&config.Config{CompetitorReportPath: path}, competitor.Summary{
+		GeneratedAtUTC: "2026-08-24T12:00:00Z",
+	})
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Contains(t, string(data), `"generatedAtUtc": "2026-08-24T12:00:00Z"`)
 }
 
 func TestWriteCompetitorNotionReportRequiresBothEnvValues(t *testing.T) {

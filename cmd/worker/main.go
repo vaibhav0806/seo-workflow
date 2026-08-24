@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/nodeops/seo-workflow/internal/competitor"
 	"github.com/nodeops/seo-workflow/internal/config"
@@ -55,7 +56,7 @@ func main() {
 			cfg.CompetitorWindowDays,
 		)
 
-		summary, runErr := competitor.Run(context.Background(), cfg)
+		summary, runErr := competitor.RunDiscovery(context.Background(), cfg)
 		if runErr != nil {
 			log.Fatalf("competitor oneshot failed: %v", runErr)
 		}
@@ -63,10 +64,30 @@ func main() {
 		if reportErr := writeCompetitorReport(cfg, summary); reportErr != nil {
 			log.Fatalf("failed to write competitor report: %v", reportErr)
 		}
-		if reportErr := writeCompetitorContentPullRequest(context.Background(), cfg, summary); reportErr != nil {
-			log.Fatalf("failed to create competitor content pull request: %v", reportErr)
+		generatedAt := time.Now().UTC()
+		if parsed, parseErr := time.Parse(time.RFC3339, summary.GeneratedAtUTC); parseErr == nil {
+			generatedAt = parsed
 		}
-		log.Printf("competitor oneshot complete")
+		queue := competitor.BuildApprovalQueue(summary.ContentPlan, generatedAt)
+		if queueErr := competitor.WriteApprovalQueue(cfg.ContentApprovalPath, queue); queueErr != nil {
+			log.Fatalf("failed to write content approval queue: %v", queueErr)
+		}
+		log.Printf("competitor oneshot complete: approval_queue=%q candidates=%d", cfg.ContentApprovalPath, len(queue.Items))
+		return
+	}
+	if cfg.WorkerMode == "approved-content" {
+		log.Printf("approved content starting: approval_queue=%q", cfg.ContentApprovalPath)
+		summary, runErr := competitor.RunApprovedContent(context.Background(), cfg)
+		if runErr != nil {
+			log.Fatalf("approved content workflow failed: %v", runErr)
+		}
+		if reportErr := writeCompetitorReport(cfg, summary); reportErr != nil {
+			log.Fatalf("failed to write approved content report: %v", reportErr)
+		}
+		if publishErr := writeCompetitorContentPullRequest(context.Background(), cfg, summary); publishErr != nil {
+			log.Fatalf("failed to create approved content pull request: %v", publishErr)
+		}
+		log.Printf("approved content complete")
 		return
 	}
 	if cfg.WorkerMode == "manual-content" {

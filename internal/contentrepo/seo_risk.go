@@ -34,6 +34,7 @@ type SEORiskReport struct {
 }
 
 var wordPattern = regexp.MustCompile(`[a-z0-9]+`)
+var markdownLinkPattern = regexp.MustCompile(`\[[^\]]+\]\((https?://[^)]+|/[^)]+)\)`)
 
 func AssessSEORisk(post BlogPost) SEORiskReport {
 	findings := make([]SEORiskFinding, 0)
@@ -97,6 +98,30 @@ func AssessSEORisk(post BlogPost) SEORiskReport {
 		})
 	}
 
+	internalLinks, externalLinks := countEditorialLinks(body)
+	if internalLinks < 2 {
+		findings = append(findings, SEORiskFinding{
+			Code:          "insufficient-internal-links",
+			Risk:          "Internal linking",
+			Severity:      SEORiskLow,
+			AffectedField: "body",
+			Evidence:      fmt.Sprintf("Draft contains %d CreateOS internal link(s).", internalLinks),
+			SuggestedFix:  "Add at least two contextual links to existing CreateOS product or blog pages.",
+			GooglePolicy:  "Crawlability and helpful navigation",
+		})
+	}
+	if externalLinks < 2 {
+		findings = append(findings, SEORiskFinding{
+			Code:          "insufficient-external-sources",
+			Risk:          "External sourcing",
+			Severity:      SEORiskLow,
+			AffectedField: "body",
+			Evidence:      fmt.Sprintf("Draft contains %d external source link(s).", externalLinks),
+			SuggestedFix:  "Support material technical or market claims with at least two authoritative primary sources.",
+			GooglePolicy:  "Trust and factual support",
+		})
+	}
+
 	severity := maxSEORiskSeverity(findings)
 	risky := severity == SEORiskHigh || severity == SEORiskCritical
 	summary := fmt.Sprintf("%s risk: %d finding(s) require human review.", severity, len(findings))
@@ -104,6 +129,20 @@ func AssessSEORisk(post BlogPost) SEORiskReport {
 		summary = "LOW risk: no obvious automated SEO spam signals found."
 	}
 	return SEORiskReport{Severity: severity, Risky: risky, Summary: summary, Findings: dedupeSEORiskFindings(findings)}
+}
+
+func countEditorialLinks(body string) (int, int) {
+	internal := 0
+	external := 0
+	for _, match := range markdownLinkPattern.FindAllStringSubmatch(body, -1) {
+		target := strings.ToLower(strings.TrimSpace(match[1]))
+		if strings.HasPrefix(target, "/") || strings.Contains(target, "createos.sh/") {
+			internal++
+			continue
+		}
+		external++
+	}
+	return internal, external
 }
 
 func (report SEORiskReport) FindingCodes() []string {

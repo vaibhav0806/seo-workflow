@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,53 @@ import (
 	"github.com/nodeops/seo-workflow/internal/config"
 	"github.com/stretchr/testify/require"
 )
+
+func TestLoadContentInventoryWithOpenPullRequestsMergesPendingBlogs(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, "blogs"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "blogs", "existing.md"), []byte(`---
+title: Existing Blog
+slug: existing
+primary_keyword: existing topic
+---
+# Existing Blog
+`), 0o644))
+	pending := `---
+title: Role-Specific AI Productivity Tools
+slug: role-specific-ai-productivity-tools
+primary_keyword: role specific ai productivity tools
+---
+# Role-Specific AI Productivity Tools
+`
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/repos/NodeOps-app/createos-content/pulls":
+			require.Equal(t, "open", request.URL.Query().Get("state"))
+			require.Equal(t, "main", request.URL.Query().Get("base"))
+			_, _ = response.Write([]byte(`[{"number":146,"head":{"sha":"pending-sha"}}]`))
+		case "/repos/NodeOps-app/createos-content/pulls/146/files":
+			_, _ = response.Write([]byte(`[{"filename":"blogs/role-specific-ai-productivity-tools.md","status":"added"}]`))
+		case "/repos/NodeOps-app/createos-content/contents/blogs/role-specific-ai-productivity-tools.md":
+			require.Equal(t, "pending-sha", request.URL.Query().Get("ref"))
+			_, _ = response.Write([]byte(`{"encoding":"base64","content":"` + base64.StdEncoding.EncodeToString([]byte(pending)) + `"}`))
+		default:
+			http.Error(response, "unexpected path", http.StatusTeapot)
+		}
+	}))
+	defer server.Close()
+	previousBase := githubInventoryAPIBase
+	githubInventoryAPIBase = server.URL
+	t.Cleanup(func() { githubInventoryAPIBase = previousBase })
+
+	inventory, err := LoadContentInventoryWithOpenPullRequests(
+		context.Background(), root, "ghp_test", "NodeOps-app/createos-content", "main",
+	)
+
+	require.NoError(t, err)
+	require.Len(t, inventory.Pages, 2)
+	require.Equal(t, "/blogs/existing", inventory.Pages[0].Route)
+	require.Equal(t, "/blogs/role-specific-ai-productivity-tools", inventory.Pages[1].Route)
+}
 
 func TestLoadContentInventoryFetchesCreateOSContentArchive(t *testing.T) {
 	archive := contentArchive(t, map[string]string{
@@ -123,6 +171,32 @@ func TestDecideContentPlanRefreshesExistingCanonicalInsteadOfDraftingDuplicate(t
 	require.Empty(t, report.Cannibalization)
 }
 
+func TestDecideContentPlanTargetsAgenticPillarInsteadOfGenericEnterpriseDeploymentPost(t *testing.T) {
+	inventory := ContentInventory{Pages: []ExistingContent{
+		{
+			Route:             "/blogs/createos-openai-select-partner",
+			Title:             "CreateOS Is Now an OpenAI Select Partner",
+			PrimaryKeyword:    "OpenAI Select Partner",
+			SecondaryKeywords: []string{"enterprise AI deployment", "governed AI agents"},
+		},
+		{
+			Route:             "/blogs/enterprise-ai-execution-layer",
+			Title:             "Enterprise Agentic AI Strategy: Architecture to Production",
+			PrimaryKeyword:    "enterprise agentic AI strategy",
+			SecondaryKeywords: []string{"enterprise AI agent architecture", "enterprise AI governance"},
+		},
+	}}
+
+	decided, _ := DecideContentPlan([]ContentRecommendation{{
+		SuggestedSlug:  "/blogs/enterprise-agentic-ai-deployment",
+		SuggestedTitle: "Enterprise Agentic AI Deployment: Architecture, Governance, and Production",
+		PrimaryKeyword: "enterprise agentic AI deployment",
+	}}, inventory)
+
+	require.Equal(t, ContentDecisionRefresh, decided[0].Decision)
+	require.Equal(t, "/blogs/enterprise-ai-execution-layer", decided[0].ExistingRoute)
+}
+
 func TestDecideContentPlanConsolidatesWhenKeywordHasMultipleCanonicalPages(t *testing.T) {
 	inventory := ContentInventory{Pages: []ExistingContent{
 		{Route: "/blogs/ai-agent-governance", Title: "AI Agent Governance", PrimaryKeyword: "AI agent governance"},
@@ -172,4 +246,37 @@ primary_keyword: ai agent governance
 	require.Empty(t, warnings)
 	require.Equal(t, 1, report.ExistingCount)
 	require.Equal(t, ContentDecisionRefresh, plan[0].Decision)
+}
+
+func TestApplyConfiguredInventoryKeepsLocalPagesWhenOpenPRLookupFails(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "blogs"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "blogs", "governance.md"), []byte(`---
+title: AI Agent Governance
+slug: governance
+primary_keyword: ai agent governance
+---
+# AI Agent Governance
+`), 0o644))
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		http.Error(response, "bad credentials", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	previousBase := githubInventoryAPIBase
+	githubInventoryAPIBase = server.URL
+	t.Cleanup(func() { githubInventoryAPIBase = previousBase })
+
+	plan, report, warnings := applyConfiguredInventory(context.Background(), &config.Config{
+		ContentInventoryPath: root,
+		GitHubToken:          "expired-token",
+		ContentRepo:          "NodeOps-app/createos-content",
+		ContentBaseBranch:    "main",
+	}, []ContentRecommendation{{
+		SuggestedSlug: "/blogs/agent-governance", SuggestedTitle: "AI Agent Governance", PrimaryKeyword: "ai agent governance",
+	}})
+
+	require.Equal(t, 1, report.ExistingCount)
+	require.Equal(t, ContentDecisionRefresh, plan[0].Decision)
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], "open content pull requests")
 }

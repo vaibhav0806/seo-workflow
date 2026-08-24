@@ -201,6 +201,37 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Empty(t, cfg.PerformanceStatePath)
 	require.Empty(t, cfg.ManualContentTitle)
 	require.Empty(t, cfg.ManualContentEvidenceURLs)
+	require.Equal(t, "content-approvals.json", cfg.ContentApprovalPath)
+}
+
+func TestLoadApprovedContentModeRequiresApprovalAndPublishingCredentials(t *testing.T) {
+	t.Setenv("WORKER_MODE", "approved-content")
+	t.Setenv("CONTENT_APPROVAL_PATH", "tmp/content-approvals.json")
+	t.Setenv("COMPETITOR_REPORT_PATH", "tmp/approved-content-report.json")
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.Equal(t, "approved-content", cfg.WorkerMode)
+	require.Equal(t, "tmp/content-approvals.json", cfg.ContentApprovalPath)
+}
+
+func TestLoadApprovedContentModeReportsMissingRequiredEnv(t *testing.T) {
+	t.Setenv("WORKER_MODE", "approved-content")
+	t.Setenv("CONTENT_APPROVAL_PATH", "")
+	t.Setenv("COMPETITOR_REPORT_PATH", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	cfg, err := Load()
+
+	require.Nil(t, cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "COMPETITOR_REPORT_PATH")
+	require.Contains(t, err.Error(), "OPENROUTER_API_KEY")
+	require.Contains(t, err.Error(), "GITHUB_TOKEN")
 }
 
 func TestLoadManualContentModeDoesNotRequireSitemap(t *testing.T) {

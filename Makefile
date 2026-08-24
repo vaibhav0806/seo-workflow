@@ -1,6 +1,8 @@
 .PHONY: test
 .PHONY: smoke-oneshot
 .PHONY: smoke-competitor
+.PHONY: discover-blog-opportunities
+.PHONY: publish-approved-blogs
 .PHONY: test-e2e
 
 test:
@@ -14,3 +16,9 @@ smoke-oneshot:
 
 smoke-competitor:
 	WORKER_MODE=oneshot-competitor go run ./cmd/worker
+
+discover-blog-opportunities:
+	WORKER_MODE=oneshot-competitor go run ./cmd/worker
+
+publish-approved-blogs:
+	WORKER_MODE=approved-content go run ./cmd/worker

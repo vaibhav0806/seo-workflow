@@ -22,6 +22,7 @@ const (
 	defaultContentReviewer        = "navedux,vaibhav0806"
 	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
 	defaultCloudinaryUploadFolder = "createos/blog-covers"
+	defaultContentApprovalPath    = "content-approvals.json"
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
 	defaultWindowDays             = 30
 	defaultCompetitorDraftLimit   = 1
@@ -60,6 +61,7 @@ type Config struct {
 	OurSitemapURL                      string
 	AEOObservationsPath                string
 	ContentInventoryPath               string
+	ContentApprovalPath                string
 	OpenRouterAPIKey                   string
 	OpenRouterModel                    string
 	OpenRouterFallbackModel            string
@@ -115,6 +117,7 @@ func Load() (*Config, error) {
 		ContentReviewer:             defaultContentReviewer,
 		ContentCoverURL:             defaultContentCoverURL,
 		CloudinaryUploadFolder:      defaultCloudinaryUploadFolder,
+		ContentApprovalPath:         defaultContentApprovalPath,
 		CompetitorWindowDays:        defaultWindowDays,
 		OpenRouterTopicTimeoutSecs:  defaultOpenRouterTopicTimeout,
 		OpenRouterDraftTimeoutSecs:  defaultOpenRouterDraftTimeout,
@@ -216,12 +219,15 @@ func Load() (*Config, error) {
 			sort.Strings(missing)
 			return nil, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
 		}
-	case "oneshot-competitor", "manual-content":
+	case "oneshot-competitor", "manual-content", "approved-content":
 		cfg.OurSitemapURL = strings.TrimSpace(os.Getenv("OUR_SITEMAP_URL"))
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
 		cfg.CompetitorStatePath = strings.TrimSpace(os.Getenv("COMPETITOR_STATE_PATH"))
 		cfg.AEOObservationsPath = strings.TrimSpace(os.Getenv("AEO_OBSERVATIONS_PATH"))
 		cfg.ContentInventoryPath = strings.TrimSpace(os.Getenv("CONTENT_INVENTORY_PATH"))
+		if approvalPath := strings.TrimSpace(os.Getenv("CONTENT_APPROVAL_PATH")); approvalPath != "" {
+			cfg.ContentApprovalPath = approvalPath
+		}
 		cfg.PerformanceStatePath = strings.TrimSpace(os.Getenv("SEO_PERFORMANCE_STATE_PATH"))
 		cfg.OpenRouterAPIKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 		cfg.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
@@ -295,6 +301,17 @@ func Load() (*Config, error) {
 			if cfg.ManualContentTitle == "" {
 				missing = append(missing, "CONTENT_MANUAL_TITLE")
 			}
+			if cfg.OpenRouterAPIKey == "" {
+				missing = append(missing, "OPENROUTER_API_KEY")
+			}
+			if cfg.GitHubToken == "" {
+				missing = append(missing, "GITHUB_TOKEN")
+			}
+			if cfg.CompetitorReportPath == "" {
+				missing = append(missing, "COMPETITOR_REPORT_PATH")
+			}
+		}
+		if cfg.WorkerMode == "approved-content" {
 			if cfg.OpenRouterAPIKey == "" {
 				missing = append(missing, "OPENROUTER_API_KEY")
 			}

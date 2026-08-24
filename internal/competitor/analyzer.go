@@ -461,17 +461,18 @@ func buildContentRecommendations(opportunities []Opportunity) []ContentRecommend
 		pageType := pageTypeForTheme(opportunity.Theme)
 		primaryKeyword := strings.Join(filteredTokens(topic), " ")
 		recommendations = append(recommendations, ContentRecommendation{
-			Priority:       idx + 1,
-			Opportunity:    opportunity.Title,
-			Competitor:     opportunity.Competitor,
-			Theme:          opportunity.Theme,
-			PageType:       pageType,
-			SuggestedSlug:  suggestedSlug(topic, opportunity.Theme),
-			SuggestedTitle: suggestedTitle(topic, opportunity.Theme, opportunity.Competitor),
-			TargetIntent:   intentForTheme(opportunity.Theme),
-			ContentAngle:   contentAngleForTheme(topic, opportunity.Theme, opportunity.Competitor),
-			Pillar:         pillarForTheme(opportunity.Theme),
-			PrimaryKeyword: primaryKeyword,
+			Priority:         idx + 1,
+			OpportunityScore: opportunity.ImpactScore,
+			Opportunity:      opportunity.Title,
+			Competitor:       opportunity.Competitor,
+			Theme:            opportunity.Theme,
+			PageType:         pageType,
+			SuggestedSlug:    suggestedSlug(topic, opportunity.Theme),
+			SuggestedTitle:   suggestedTitle(topic, opportunity.Theme, opportunity.Competitor),
+			TargetIntent:     intentForTheme(opportunity.Theme),
+			ContentAngle:     contentAngleForTheme(topic, opportunity.Theme, opportunity.Competitor),
+			Pillar:           pillarForTheme(opportunity.Theme),
+			PrimaryKeyword:   primaryKeyword,
 			SecondaryKeywords: secondaryKeywordsForRecommendation(
 				primaryKeyword,
 				opportunity.Theme,
@@ -550,7 +551,19 @@ func suggestedTitle(topic string, theme string, competitor string) string {
 	case "usecases", "vibecoding":
 		return fmt.Sprintf("%s with CreateOS", titleFromTopic(topic))
 	case "enterprise":
-		return fmt.Sprintf("%s for Teams", titleFromTopic(topic))
+		return fmt.Sprintf("%s: Architecture, Governance, and Production", titleFromTopic(topic))
+	case "agents":
+		return fmt.Sprintf("%s: From Sandbox to Production", titleFromTopic(topic))
+	case "sandbox":
+		return fmt.Sprintf("%s: Isolation, Security, and Production Workflows", titleFromTopic(topic))
+	case "workflow":
+		return fmt.Sprintf("%s: Design, Orchestration, and Operations", titleFromTopic(topic))
+	case "ai":
+		normalizedTopic := strings.ToLower(topic)
+		if strings.Contains(normalizedTopic, "model api") || strings.Contains(normalizedTopic, "model gateway") || strings.Contains(normalizedTopic, "ai gateway") {
+			return fmt.Sprintf("%s: Architecture, Routing, and Reliability", titleFromTopic(topic))
+		}
+		return fmt.Sprintf("%s: A Production Guide", titleFromTopic(topic))
 	case "security":
 		return fmt.Sprintf("%s with CreateOS", titleFromTopic(topic))
 	case "integrations":
@@ -1122,6 +1135,8 @@ func llmTopicTheme(topicName string) string {
 		return "enterprise"
 	case strings.Contains(raw, "security") || strings.Contains(raw, "integrity") || strings.Contains(raw, "vulnerability"):
 		return "security"
+	case strings.Contains(raw, "sandbox") || strings.Contains(raw, "isolated execution") || strings.Contains(raw, "code isolation"):
+		return "sandbox"
 	case strings.Contains(raw, "agentic") || strings.Contains(raw, "agent workflow") || strings.Contains(raw, "coding tools"):
 		return "agents"
 	case strings.Contains(raw, "prototype") || strings.Contains(raw, "prototyping") || strings.Contains(raw, "mvp") || strings.Contains(raw, "app building") || strings.Contains(raw, "website building") || strings.Contains(raw, "no-code") || strings.Contains(raw, "low-code"):

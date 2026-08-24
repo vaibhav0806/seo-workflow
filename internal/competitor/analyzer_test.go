@@ -358,6 +358,29 @@ func TestBuildContentRecommendationsCreatesClusterPlan(t *testing.T) {
 	require.Contains(t, recommendations[1].SuggestedSlug, "/blogs/")
 }
 
+func TestSuggestedTitlesUseCreateOSProductionAnglesForFocusTopics(t *testing.T) {
+	require.Equal(t,
+		"Enterprise Agentic AI: Architecture, Governance, and Production",
+		suggestedTitle("enterprise agentic ai", "enterprise", "market"),
+	)
+	require.Equal(t,
+		"AI Agent Sandboxes: Isolation, Security, and Production Workflows",
+		suggestedTitle("ai agent sandboxes", "sandbox", "e2b"),
+	)
+	require.Equal(t,
+		"Production AI Workflows: Design, Orchestration, and Operations",
+		suggestedTitle("production ai workflows", "workflow", "langchain"),
+	)
+	require.Equal(t,
+		"AI Model API Infrastructure: Architecture, Routing, and Reliability",
+		suggestedTitle("ai model api infrastructure", "ai", "vercel"),
+	)
+}
+
+func TestLLMTopicThemeClassifiesAgentSandboxes(t *testing.T) {
+	require.Equal(t, "sandbox", llmTopicTheme("secure sandboxes for AI agents"))
+}
+
 func TestSuggestedSlugAlwaysUsesCreateOSBlogRoute(t *testing.T) {
 	themes := []string{"comparison", "usecases", "vibecoding", "enterprise", "security", "integrations", "workflow", "agents", "ai", "general"}
 	for _, theme := range themes {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CreateOS Blog Opportunities"
+  short_description: "Rank and review CreateOS blog opportunities"
+  default_prompt: "Use $createos-blog-opportunities to find and rank approval-ready CreateOS blog titles."

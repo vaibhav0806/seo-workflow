@@ -50,6 +50,10 @@ type Opportunity struct {
 
 type ContentRecommendation struct {
 	Priority          int                         `json:"priority"`
+	OpportunityScore  int                         `json:"opportunityScore,omitempty"`
+	RankingScore      int                         `json:"rankingScore,omitempty"`
+	ApprovalID        string                      `json:"approvalId,omitempty"`
+	ApprovalStatus    ApprovalStatus              `json:"approvalStatus,omitempty"`
 	Opportunity       string                      `json:"opportunity"`
 	Competitor        string                      `json:"competitor"`
 	Theme             string                      `json:"theme"`
@@ -220,6 +224,14 @@ const (
 )
 
 func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
+	return run(ctx, cfg, true)
+}
+
+func RunDiscovery(ctx context.Context, cfg *config.Config) (Summary, error) {
+	return run(ctx, cfg, false)
+}
+
+func run(ctx context.Context, cfg *config.Config, generateDrafts bool) (Summary, error) {
 	if cfg == nil {
 		return Summary{}, fmt.Errorf("competitor config is nil")
 	}
@@ -328,7 +340,7 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	searchPerformance, performanceWarnings := loadConfiguredPerformance(cfg.PerformanceStatePath)
 	warnings = append(warnings, performanceWarnings...)
 	contentPlan = applyPerformanceSignals(contentPlan, searchPerformance)
-	if cfg.OpenRouterAPIKey != "" && len(contentPlan) > 0 {
+	if generateDrafts && cfg.OpenRouterAPIKey != "" && len(contentPlan) > 0 {
 		draftModel := strings.TrimSpace(cfg.OpenRouterDraftModel)
 		if draftModel == "" {
 			draftModel = cfg.OpenRouterModel

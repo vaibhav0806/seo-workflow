@@ -508,7 +508,7 @@ func blogDraftBodyUserPrompt(item blogDraftPromptItem, brief BlogDraft, briefByt
 		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
 	}
 	itemBytes, _ := json.Marshal(item)
-	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Include an H1 matching the selected title exactly, then ## The short version with a direct 40-60 word answer. Include 4-6 H2 sections, honest tradeoffs, and CTA. For substantive blog content, include ## Frequently asked questions with 5-8 real buyer questions and 2-3 sentence answers. Use one markdown decision/comparison table only when it materially clarifies tradeoffs or choices; never add a filler table. Make it polished prose, not an outline. Do not add external links or outreach ideas. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
+	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Include an H1 matching the selected title exactly, then ## The short version with a direct 40-60 word answer. Include 4-6 H2 sections, honest tradeoffs, and CTA. For substantive blog content, include ## Frequently asked questions with 5-8 real buyer questions and 2-3 sentence answers. Use one markdown decision/comparison table only when it materially clarifies tradeoffs or choices; never add a filler table. Make it polished prose, not an outline. Only cite external URLs supplied in sourceEvidence, and use them only where they directly support a claim. Never invent a citation URL. Do not add outreach ideas. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
 }
 
 type blogDraftPromptItem struct {
@@ -545,7 +545,7 @@ func draftPromptInput(recommendations []ContentRecommendation, limit int, intern
 			Pillar:         recommendation.Pillar,
 			ContentAngle:   recommendation.ContentAngle,
 			SourceEvidence: limitStrings(recommendation.SourceEvidence, 3),
-			LockTitle:      IsManualContentRecommendation(recommendation),
+			LockTitle:      IsManualContentRecommendation(recommendation) || recommendation.ApprovalStatus == ApprovalApproved,
 			InternalLinkCandidates: selectInternalLinkCandidatesForRecommendation(
 				recommendation,
 				internalLinkInventory,

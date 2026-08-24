@@ -79,3 +79,19 @@ func TestMitigateSEORiskAddsReviewMethodologyWithoutChangingTitle(t *testing.T) 
 	require.Contains(t, mitigated.BodyMarkdown, "## Editorial Risk Mitigation Notes")
 	require.Contains(t, mitigated.BodyMarkdown, "human review")
 }
+
+func TestAssessSEORiskReviewsInternalAndExternalLinks(t *testing.T) {
+	post := BlogPost{
+		Title: "Enterprise Agentic AI in Production",
+		BodyMarkdown: strings.Repeat("Production agent workflows need explicit controls and observable execution. ", 120) +
+			"\n\nRead the [CreateOS sandbox guide](https://createos.sh/blogs/ai-agent-sandboxes). " +
+			"Review the [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework).",
+	}
+
+	report := AssessSEORisk(post)
+
+	require.Contains(t, report.FindingCodes(), "insufficient-internal-links")
+	require.Contains(t, report.FindingCodes(), "insufficient-external-sources")
+	require.Contains(t, report.Markdown(), "Internal linking")
+	require.Contains(t, report.Markdown(), "External sourcing")
+}

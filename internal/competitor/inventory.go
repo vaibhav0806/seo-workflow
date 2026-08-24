@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +23,23 @@ import (
 )
 
 var githubInventoryAPIBase = "https://api.github.com"
+
+type githubInventoryPullRequest struct {
+	Number int `json:"number"`
+	Head   struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
+}
+
+type githubInventoryPullRequestFile struct {
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+}
+
+type githubInventoryContent struct {
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+}
 
 type ContentDecision string
 
@@ -134,6 +153,129 @@ func LoadContentInventory(ctx context.Context, localPath string, token string, r
 		return ContentInventory{}, fmt.Errorf("fetch content inventory status=%d body=%q", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return loadContentInventoryArchive(response.Body)
+}
+
+func LoadContentInventoryWithOpenPullRequests(ctx context.Context, localPath string, token string, repo string, branch string) (ContentInventory, error) {
+	inventory, err := LoadContentInventory(ctx, localPath, token, repo, branch)
+	if err != nil {
+		return ContentInventory{}, err
+	}
+	if strings.TrimSpace(token) == "" {
+		return inventory, nil
+	}
+	owner, repoName, err := splitInventoryRepo(repo)
+	if err != nil {
+		return inventory, err
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = "main"
+	}
+
+	var pulls []githubInventoryPullRequest
+	pullsURL := fmt.Sprintf("%s/repos/%s/%s/pulls?state=open&base=%s&per_page=100", githubInventoryAPIBase, url.PathEscape(owner), url.PathEscape(repoName), url.QueryEscape(branch))
+	if err := requestGitHubInventoryJSON(ctx, token, pullsURL, &pulls); err != nil {
+		return inventory, fmt.Errorf("fetch open content pull requests: %w", err)
+	}
+	pagesByPath := make(map[string]ExistingContent, len(inventory.Pages))
+	for _, page := range inventory.Pages {
+		pagesByPath[page.Path] = page
+	}
+	for _, pull := range pulls {
+		if pull.Number == 0 || strings.TrimSpace(pull.Head.SHA) == "" {
+			continue
+		}
+		var files []githubInventoryPullRequestFile
+		filesURL := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/files?per_page=100", githubInventoryAPIBase, url.PathEscape(owner), url.PathEscape(repoName), pull.Number)
+		if err := requestGitHubInventoryJSON(ctx, token, filesURL, &files); err != nil {
+			return inventory, fmt.Errorf("fetch content pull request #%d files: %w", pull.Number, err)
+		}
+		for _, file := range files {
+			path := filepath.ToSlash(strings.TrimSpace(file.Filename))
+			if !strings.HasPrefix(path, "blogs/") || !strings.HasSuffix(strings.ToLower(path), ".md") {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(file.Status), "removed") {
+				delete(pagesByPath, path)
+				continue
+			}
+			contentURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", githubInventoryAPIBase, url.PathEscape(owner), url.PathEscape(repoName), pathEscapeSegments(path), url.QueryEscape(pull.Head.SHA))
+			var content githubInventoryContent
+			if err := requestGitHubInventoryJSON(ctx, token, contentURL, &content); err != nil {
+				return inventory, fmt.Errorf("fetch content pull request #%d file %q: %w", pull.Number, path, err)
+			}
+			raw, err := decodeGitHubInventoryContent(content)
+			if err != nil {
+				return inventory, fmt.Errorf("decode content pull request #%d file %q: %w", pull.Number, path, err)
+			}
+			page, err := parseExistingContent(path, raw)
+			if err != nil {
+				return inventory, fmt.Errorf("parse content pull request #%d file %q: %w", pull.Number, path, err)
+			}
+			pagesByPath[path] = page
+		}
+	}
+	pages := make([]ExistingContent, 0, len(pagesByPath))
+	for _, page := range pagesByPath {
+		pages = append(pages, page)
+	}
+	sort.Slice(pages, func(i, j int) bool { return pages[i].Route < pages[j].Route })
+	return ContentInventory{Pages: pages}, nil
+}
+
+func splitInventoryRepo(repo string) (string, string, error) {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(repo), "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("invalid content repo %q", repo)
+	}
+	return parts[0], parts[1], nil
+}
+
+func requestGitHubInventoryJSON(ctx context.Context, token string, requestURL string, out any) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	request.Header.Set("Accept", "application/vnd.github+json")
+	response, err := (&http.Client{Timeout: 60 * time.Second}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return fmt.Errorf("github status=%d body=%q", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(out); err != nil {
+		return err
+	}
+	return nil
+}
+
+func decodeGitHubInventoryContent(content githubInventoryContent) (string, error) {
+	if !strings.EqualFold(strings.TrimSpace(content.Encoding), "base64") {
+		return "", fmt.Errorf("unsupported github content encoding %q", content.Encoding)
+	}
+	encoded := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, content.Content)
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func pathEscapeSegments(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for idx := range parts {
+		parts[idx] = url.PathEscape(parts[idx])
+	}
+	return strings.Join(parts, "/")
 }
 
 func loadContentInventoryArchive(reader io.Reader) (ContentInventory, error) {
@@ -287,9 +429,13 @@ func applyConfiguredInventory(ctx context.Context, cfg *config.Config, plan []Co
 	if strings.TrimSpace(cfg.ContentInventoryPath) == "" && strings.TrimSpace(cfg.GitHubToken) == "" {
 		return markPlanForCreation(plan), InventoryReport{}, []string{"content inventory skipped: set CONTENT_INVENTORY_PATH or GITHUB_TOKEN"}
 	}
-	inventory, err := LoadContentInventory(ctx, cfg.ContentInventoryPath, cfg.GitHubToken, cfg.ContentRepo, cfg.ContentBaseBranch)
+	inventory, err := LoadContentInventoryWithOpenPullRequests(ctx, cfg.ContentInventoryPath, cfg.GitHubToken, cfg.ContentRepo, cfg.ContentBaseBranch)
 	if err != nil {
-		return markPlanForCreation(plan), InventoryReport{}, []string{fmt.Sprintf("content inventory skipped: %v", err)}
+		if len(inventory.Pages) == 0 {
+			return markPlanForCreation(plan), InventoryReport{}, []string{fmt.Sprintf("content inventory skipped: %v", err)}
+		}
+		decided, report := DecideContentPlan(plan, inventory)
+		return decided, report, []string{fmt.Sprintf("open pull request inventory skipped: %v", err)}
 	}
 	decided, report := DecideContentPlan(plan, inventory)
 	return decided, report, nil
@@ -343,12 +489,44 @@ func keywordSetsOverlap(targets []string, candidates []string) bool {
 			if candidateNormalized == "" {
 				continue
 			}
-			if targetNormalized == candidateNormalized || tokenJaccard(targetNormalized, candidateNormalized) >= 0.75 {
+			if targetNormalized == candidateNormalized || tokenJaccard(targetNormalized, candidateNormalized) >= 0.8 {
+				return true
+			}
+			targetTopic := canonicalTopicKeyword(targetNormalized)
+			candidateTopic := canonicalTopicKeyword(candidateNormalized)
+			if len(strings.Fields(targetTopic)) >= 2 && len(strings.Fields(candidateTopic)) >= 2 &&
+				(targetTopic == candidateTopic || tokenJaccard(targetTopic, candidateTopic) >= 0.8) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+var contentIntentModifiers = map[string]struct{}{
+	"architecture":   {},
+	"deployment":     {},
+	"framework":      {},
+	"frameworks":     {},
+	"guide":          {},
+	"infrastructure": {},
+	"operations":     {},
+	"production":     {},
+	"strategy":       {},
+	"workflow":       {},
+	"workflows":      {},
+}
+
+func canonicalTopicKeyword(value string) string {
+	tokens := filteredTokens(value)
+	out := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if _, modifier := contentIntentModifiers[token]; modifier {
+			continue
+		}
+		out = append(out, token)
+	}
+	return strings.Join(out, " ")
 }
 
 func normalizeKeyword(value string) string {

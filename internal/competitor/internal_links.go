@@ -49,6 +49,36 @@ func buildCreateOSInternalLinkInventory(entries []rawSitemapEntry, recommendatio
 	return candidates
 }
 
+func buildContentInventoryInternalLinks(inventory ContentInventory, recommendations []ContentRecommendation) []InternalLinkCandidate {
+	queryText := contentRecommendationQueryText(recommendations)
+	candidates := make([]InternalLinkCandidate, 0, len(inventory.Pages))
+	seen := map[string]struct{}{}
+	for _, page := range inventory.Pages {
+		path := normalizeInternalPath(page.Route)
+		if path == "" {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		candidate := createOSInternalLinkCandidate(path, queryText)
+		if strings.TrimSpace(page.Title) != "" {
+			candidate.Title = strings.TrimSpace(page.Title)
+		}
+		if candidate.Score > 0 {
+			candidates = append(candidates, candidate)
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Score == candidates[j].Score {
+			return candidates[i].Path < candidates[j].Path
+		}
+		return candidates[i].Score > candidates[j].Score
+	})
+	return candidates
+}
+
 func createOSInternalLinkCandidate(path string, queryText string) InternalLinkCandidate {
 	pageType := createOSInternalPageType(path)
 	category := createOSInternalCategory(path)

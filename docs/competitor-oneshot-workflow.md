@@ -1,6 +1,8 @@
 # Competitor One-Shot Workflow
 
-This mode compares recent sitemap changes for CreateOS vs competitors and outputs actionable opportunities with impact scores.
+This workflow separates title discovery from drafting and publishing. The discovery run compares recent sitemap changes for CreateOS vs competitors, ranks focused blog opportunities, and writes a human approval queue. It never generates a draft or opens a content PR.
+
+The repository also includes the reusable `.codex/skills/createos-blog-opportunities` skill for running and reviewing this flow from Codex.
 
 When `OPENROUTER_API_KEY` is set, the primary flow is:
 1. Fetch sitemap URLs for each competitor.
@@ -47,6 +49,10 @@ export COMPETITOR_STATE_PATH='tmp/competitor-state.json'
 # when omitted, the configured GitHub content repo is downloaded using GITHUB_TOKEN
 export CONTENT_INVENTORY_PATH='../createos-content'
 
+# when GITHUB_TOKEN is set, open content PRs are merged into the inventory so
+# pending posts and pillar refreshes cannot be recommended as new duplicates
+export GITHUB_TOKEN='github_pat_...'
+
 # state written by WORKER_MODE=oneshot and consumed by competitor recommendations
 export SEO_PERFORMANCE_STATE_PATH='tmp/search-performance.json'
 
@@ -57,7 +63,7 @@ export AEO_OBSERVATIONS_PATH='tmp/aeo-observations.csv'
 export OPENROUTER_API_KEY='sk-or-...'
 export OPENROUTER_MODEL='moonshotai/kimi-k2'
 
-# optional separate model for generated blog drafts
+# used by WORKER_MODE=approved-content after a title is approved
 # examples: qwen/qwen3.6-flash, qwen/qwen3.6-27b, moonshotai/kimi-k2.5
 export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
 
@@ -65,6 +71,9 @@ export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
 # default draft limit is 1; increase when you want more content PR drafts per run
 export OPENROUTER_DRAFT_TIMEOUT_SEC='360'
 export COMPETITOR_CONTENT_DRAFT_LIMIT='1'
+
+# discovery writes this queue; edit approvalStatus to approved or rejected
+export CONTENT_APPROVAL_PATH='content-approvals.json'
 
 # optional manual content seed; when set, this title is drafted first and the
 # normal competitor opportunities remain available as fallback candidates
@@ -92,12 +101,11 @@ export CLOUDINARY_UPLOAD_FOLDER='createos/blog-covers'
 export CONTENT_COVER_ASSET_BASE_URL='https://public-cdn.example.com'
 
 # content repo PR publishing
-export GITHUB_TOKEN='github_pat_...'
 export CONTENT_REPO='NodeOps-app/createos-content'
 export CONTENT_BASE_BRANCH='main'
 ```
 
-## 3) Run
+## 3) Discover titles
 
 ```bash
 make smoke-competitor
@@ -109,7 +117,21 @@ or:
 go run ./cmd/worker
 ```
 
-## 4) Output
+Review `content-approvals.json`. Each candidate includes its stable approval ID, ranked priority, keyword/intent, competitor evidence, cannibalization decision, and internal cluster targets. Set `approvalStatus` to `approved` only for titles that should become new blogs. Approved `refresh` and `consolidate` recommendations remain editorial actions against existing pages and are not published as duplicate posts.
+
+## 4) Draft, review, and open content PRs
+
+```bash
+export WORKER_MODE=approved-content
+export OPENROUTER_API_KEY='sk-or-...'
+export GITHUB_TOKEN='github_pat_...'
+export COMPETITOR_REPORT_PATH='approved-content-report.json'
+make publish-approved-blogs
+```
+
+The approved title is locked during generation. The PR includes automated SEO review for thin content, repetition, listicle methodology, contextual CreateOS links, and authoritative external sourcing.
+
+## 5) Output
 
 - Per-competitor sitemap stats and theme counts.
 - Date-less competitor tracking when `COMPETITOR_STATE_PATH` is set.

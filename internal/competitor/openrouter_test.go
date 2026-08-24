@@ -107,7 +107,8 @@ func TestBlogDraftPromptRequestsProseNotOutline(t *testing.T) {
 	require.Contains(t, prompt, "honest tradeoffs")
 	require.Contains(t, prompt, "decision/comparison table")
 	require.Contains(t, prompt, "markdown only")
-	require.Contains(t, prompt, "Do not add external links or outreach ideas")
+	require.Contains(t, prompt, "Only cite external URLs supplied in sourceEvidence")
+	require.Contains(t, prompt, "Never invent a citation URL")
 }
 
 func TestDraftPromptInputLocksManualTitle(t *testing.T) {
@@ -118,6 +119,23 @@ func TestDraftPromptInputLocksManualTitle(t *testing.T) {
 			SuggestedTitle: "Top AI App Builders for Production-Ready Apps",
 		},
 	}, 1, nil)
+
+	require.Len(t, input, 1)
+	require.True(t, input[0].LockTitle)
+}
+
+func TestDraftPromptInputLocksHumanApprovedTitle(t *testing.T) {
+	input := draftPromptInput([]ContentRecommendation{{
+		ApprovalID:       "ai-agent-sandboxes",
+		ApprovalStatus:   ApprovalApproved,
+		SuggestedSlug:    "/blogs/ai-agent-sandboxes",
+		SuggestedTitle:   "AI Agent Sandboxes: Isolation, Security, and Production Workflows",
+		SourceEvidence:   []string{"https://example.com/sandbox-research"},
+		PrimaryKeyword:   "ai agent sandboxes",
+		ContentAngle:     "Explain production isolation and workflow controls.",
+		TargetIntent:     "implementation intent",
+		OpportunityScore: 90,
+	}}, 1, nil)
 
 	require.Len(t, input, 1)
 	require.True(t, input[0].LockTitle)

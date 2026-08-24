@@ -2,4 +2,5 @@
 .worktrees/
 tmp/
 competitor-report.json
+content-approvals.json
 oneshot-report.json
