@@ -56,11 +56,11 @@ if [[ "$WORKER_MODE" == "oneshot-competitor" ]]; then
   prompt_default COMPETITOR_WINDOW_DAYS "Window days" "30"
   prompt_default COMPETITOR_HTTP_TIMEOUT_SEC "HTTP timeout seconds" "30"
   prompt_default COMPETITOR_REPORT_PATH "Competitor report path" "competitor-report.json"
+  prompt_default CONTENT_INVENTORY_PATH "Local createos-content checkout (optional)" "../createos-content"
+  prompt_default SEO_PERFORMANCE_STATE_PATH "Search performance state path (optional)" "tmp/search-performance.json"
   prompt_secret OPENROUTER_API_KEY "OpenRouter API key (optional; press Enter to leave empty)"
   prompt_default OPENROUTER_MODEL "OpenRouter model" "moonshotai/kimi-k2"
   prompt_default OPENROUTER_DRAFT_MODEL "OpenRouter draft-writing model (optional)" "$OPENROUTER_MODEL"
-  prompt_default OPENROUTER_COVER_MODEL "OpenRouter cover image model" "google/gemini-2.5-flash-image"
-  prompt_default CONTENT_COVER_STYLE "Generated cover prompt style (auto/green-lush/soft-tech-furry/surreal-dreamscape)" "auto"
   prompt_default CONTENT_COVER_ASSET_BASE_URL "Public base URL for generated cover assets (optional)" ""
   prompt_default CLOUDINARY_CLOUD_NAME "Cloudinary cloud name (optional)" "${CLOUDINARY_CLOUD_NAME:-}"
   prompt_default CLOUDINARY_API_KEY "Cloudinary API key (optional)" "${CLOUDINARY_API_KEY:-}"
@@ -75,11 +75,11 @@ OUR_SITEMAP_URL=$OUR_SITEMAP_URL
 COMPETITOR_WINDOW_DAYS=$COMPETITOR_WINDOW_DAYS
 COMPETITOR_HTTP_TIMEOUT_SEC=$COMPETITOR_HTTP_TIMEOUT_SEC
 COMPETITOR_REPORT_PATH=$COMPETITOR_REPORT_PATH
+CONTENT_INVENTORY_PATH=${CONTENT_INVENTORY_PATH:-}
+SEO_PERFORMANCE_STATE_PATH=${SEO_PERFORMANCE_STATE_PATH:-}
 OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
 OPENROUTER_MODEL=$OPENROUTER_MODEL
 OPENROUTER_DRAFT_MODEL=${OPENROUTER_DRAFT_MODEL:-}
-OPENROUTER_COVER_MODEL=${OPENROUTER_COVER_MODEL:-}
-CONTENT_COVER_STYLE=${CONTENT_COVER_STYLE:-auto}
 CONTENT_COVER_ASSET_BASE_URL=${CONTENT_COVER_ASSET_BASE_URL:-}
 CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
 CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
@@ -103,6 +103,7 @@ else
   prompt_default GSC_LOOKBACK_DAYS "GSC lookback days" "7"
   prompt_default GSC_ROW_LIMIT "GSC row limit" "1000"
   prompt_default GSC_HTTP_TIMEOUT_SEC "HTTP timeout seconds" "30"
+  prompt_default SEO_PERFORMANCE_STATE_PATH "Search performance state path" "tmp/search-performance.json"
   prompt_default GITHUB_BASE_BRANCH "GitHub base branch" "main"
   prompt_default GITHUB_SITEMAP_PATH "Repo sitemap path" "public/sitemap.xml"
 
@@ -122,6 +123,7 @@ SCAN_QPM=$SCAN_QPM
 GSC_LOOKBACK_DAYS=$GSC_LOOKBACK_DAYS
 GSC_ROW_LIMIT=$GSC_ROW_LIMIT
 GSC_HTTP_TIMEOUT_SEC=$GSC_HTTP_TIMEOUT_SEC
+SEO_PERFORMANCE_STATE_PATH=$SEO_PERFORMANCE_STATE_PATH
 GITHUB_BASE_BRANCH=$GITHUB_BASE_BRANCH
 GITHUB_SITEMAP_PATH=$GITHUB_SITEMAP_PATH
 ENV

@@ -15,7 +15,11 @@ var datedSlugPattern = regexp.MustCompile(`(20[0-9]{2})-([01][0-9])-([0-3][0-9])
 
 var themeKeywordMap = map[string][]string{
 	"ai":           {"ai", "llm", "genai", "gpt", "model", "inference"},
-	"agents":       {"agent", "agents", "autonomous", "orchestration", "workflow"},
+	"agents":       {"agent", "agents", "autonomous", "platform", "platforms"},
+	"comparison":   {"best", "top", "vs", "alternative", "alternatives", "compare", "comparison", "ranked"},
+	"usecases":     {"usecase", "usecases", "solutions", "solution", "industry", "industries"},
+	"enterprise":   {"enterprise", "teams", "governance", "compliance", "cio"},
+	"workflow":     {"workflow", "workflows", "automation", "automations", "orchestration"},
 	"vibecoding":   {"vibe", "vibecoding", "nocode", "builder"},
 	"mcp":          {"mcp", "modelcontextprotocol", "protocol"},
 	"security":     {"security", "breach", "incident", "vulnerability", "cve", "outage", "downtime"},
@@ -455,6 +459,7 @@ func buildContentRecommendations(opportunities []Opportunity) []ContentRecommend
 			topic = opportunity.Title
 		}
 		pageType := pageTypeForTheme(opportunity.Theme)
+		primaryKeyword := strings.Join(filteredTokens(topic), " ")
 		recommendations = append(recommendations, ContentRecommendation{
 			Priority:       idx + 1,
 			Opportunity:    opportunity.Title,
@@ -466,11 +471,42 @@ func buildContentRecommendations(opportunities []Opportunity) []ContentRecommend
 			TargetIntent:   intentForTheme(opportunity.Theme),
 			ContentAngle:   contentAngleForTheme(topic, opportunity.Theme, opportunity.Competitor),
 			Pillar:         pillarForTheme(opportunity.Theme),
+			PrimaryKeyword: primaryKeyword,
+			SecondaryKeywords: secondaryKeywordsForRecommendation(
+				primaryKeyword,
+				opportunity.Theme,
+				opportunity.Competitor,
+			),
 			ClusterPages:   clusterPagesForOpportunity(topic, opportunity.Theme, opportunity.Competitor),
 			SourceEvidence: limitStrings(opportunity.Evidence, 3),
 		})
 	}
 	return recommendations
+}
+
+func secondaryKeywordsForRecommendation(primary string, theme string, competitor string) []string {
+	candidates := []string{
+		strings.TrimSpace(theme + " guide"),
+		strings.TrimSpace(primary + " CreateOS"),
+	}
+	if competitor != "" && competitor != "market" {
+		candidates = append(candidates, strings.TrimSpace(primary+" "+competitor))
+	}
+	out := make([]string, 0, len(candidates))
+	seen := map[string]struct{}{strings.ToLower(strings.TrimSpace(primary)): {}}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		key := strings.ToLower(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 func opportunityTopicName(title string) string {
@@ -485,36 +521,26 @@ func opportunityTopicName(title string) string {
 func pageTypeForTheme(theme string) string {
 	switch theme {
 	case "comparison":
-		return "comparison page"
+		return "comparison blog"
 	case "usecases", "vibecoding":
-		return "use-case landing page"
+		return "use-case blog"
 	case "enterprise":
-		return "solution landing page"
+		return "enterprise guide blog"
 	case "security":
-		return "trust page"
+		return "security guide blog"
 	case "integrations":
-		return "integration page"
+		return "integration guide blog"
+	case "workflow":
+		return "workflow guide blog"
 	case "agents", "ai":
-		return "pillar guide"
+		return "pillar blog"
 	default:
-		return "focused SEO page"
+		return "focused SEO blog"
 	}
 }
 
-func suggestedSlug(topic string, theme string) string {
-	slug := safeSlug(topic)
-	switch theme {
-	case "comparison":
-		return "/compare/" + slug
-	case "usecases", "vibecoding":
-		return "/use-cases/" + slug
-	case "enterprise", "security":
-		return "/solutions/" + slug
-	case "integrations":
-		return "/integrations/" + slug
-	default:
-		return "/blogs/" + slug
-	}
+func suggestedSlug(topic string, _ string) string {
+	return "/blogs/" + safeSlug(topic)
 }
 
 func suggestedTitle(topic string, theme string, competitor string) string {
@@ -547,6 +573,8 @@ func intentForTheme(theme string) string {
 		return "enterprise trust evaluation"
 	case "integrations":
 		return "implementation intent"
+	case "workflow":
+		return "workflow automation evaluation"
 	case "agents", "ai":
 		return "educational-to-product intent"
 	default:
@@ -567,7 +595,7 @@ func contentAngleForTheme(topic string, theme string, competitor string) string 
 	case "integrations":
 		return "Make the integration path concrete with prerequisites, setup steps, screenshots, and expected outcomes."
 	default:
-		return "Turn competitor demand into a CreateOS-specific page with examples, proof, and internal links."
+		return "Turn competitor demand into a CreateOS-specific blog with examples, proof, and internal links."
 	}
 }
 
@@ -595,27 +623,27 @@ func clusterPagesForOpportunity(topic string, theme string, competitor string) [
 	switch theme {
 	case "comparison":
 		return []ContentPageRecommendation{
-			{PageType: "comparison page", Slug: fmt.Sprintf("/compare/%s-alternative", competitor), Title: fmt.Sprintf("Best %s Alternative for AI App Builders", titleWord(competitor)), TargetIntent: "commercial evaluation"},
+			{PageType: "comparison blog", Slug: fmt.Sprintf("/blogs/%s-alternative", safeSlug(competitor)), Title: fmt.Sprintf("Best %s Alternative for AI App Builders", titleWord(competitor)), TargetIntent: "commercial evaluation"},
 			{PageType: "listicle", Slug: "/blogs/best-ai-app-builders", Title: "Best AI App Builders for Shipping Real Products", TargetIntent: "commercial research"},
-			{PageType: "comparison page", Slug: "/compare/createos-vs-ai-builders", Title: "CreateOS vs AI App Builders: Which Should You Choose?", TargetIntent: "commercial evaluation"},
+			{PageType: "comparison blog", Slug: "/blogs/createos-vs-ai-builders", Title: "CreateOS vs AI App Builders: Which Should You Choose?", TargetIntent: "commercial evaluation"},
 		}
 	case "usecases", "vibecoding":
 		return []ContentPageRecommendation{
-			{PageType: "use-case landing page", Slug: "/use-cases/product-managers", Title: "AI App Builder for Product Managers", TargetIntent: "persona evaluation"},
-			{PageType: "use-case landing page", Slug: "/use-cases/startup-mvp-builder", Title: "AI MVP Builder for Startups", TargetIntent: "use-case evaluation"},
+			{PageType: "use-case blog", Slug: "/blogs/ai-app-builder-product-managers", Title: "AI App Builder for Product Managers", TargetIntent: "persona evaluation"},
+			{PageType: "use-case blog", Slug: "/blogs/ai-mvp-builder-startups", Title: "AI MVP Builder for Startups", TargetIntent: "use-case evaluation"},
 			{PageType: "guide", Slug: "/blogs/rapid-prototyping-with-ai", Title: "Rapid Prototyping with AI: From Idea to MVP", TargetIntent: "educational-to-product intent"},
 		}
 	case "enterprise":
 		return []ContentPageRecommendation{
-			{PageType: "solution landing page", Slug: "/solutions/enterprise-ai-development", Title: "Enterprise AI Development with CreateOS", TargetIntent: "enterprise evaluation"},
-			{PageType: "trust page", Slug: "/solutions/security-governance", Title: "Security and Governance for AI-Built Apps", TargetIntent: "enterprise trust evaluation"},
-			{PageType: "case-study template", Slug: "/customers/ai-development-teams", Title: "How Teams Ship AI Apps with CreateOS", TargetIntent: "proof evaluation"},
+			{PageType: "enterprise guide blog", Slug: "/blogs/enterprise-ai-development", Title: "Enterprise AI Development with CreateOS", TargetIntent: "enterprise evaluation"},
+			{PageType: "security guide blog", Slug: "/blogs/security-governance-ai-built-apps", Title: "Security and Governance for AI-Built Apps", TargetIntent: "enterprise trust evaluation"},
+			{PageType: "case-study blog", Slug: "/blogs/ai-development-teams", Title: "How Teams Ship AI Apps with CreateOS", TargetIntent: "proof evaluation"},
 		}
 	default:
 		return []ContentPageRecommendation{
 			{PageType: pageTypeForTheme(theme), Slug: suggestedSlug(topic, theme), Title: suggestedTitle(topic, theme, competitor), TargetIntent: intentForTheme(theme)},
 			{PageType: "guide", Slug: "/blogs/" + baseSlug + "-guide", Title: guideTitleFromTopic(topic), TargetIntent: "educational intent"},
-			{PageType: "case-study template", Slug: "/customers/" + baseSlug, Title: titleFromTopic(topic) + " Examples", TargetIntent: "proof evaluation"},
+			{PageType: "case-study blog", Slug: "/blogs/" + baseSlug + "-examples", Title: titleFromTopic(topic) + " Examples", TargetIntent: "proof evaluation"},
 		}
 	}
 }
@@ -684,9 +712,9 @@ func buildExecutionPlan(phrase string, competitor string, evidence []string) []s
 		example = evidence[0]
 	}
 	return []string{
-		fmt.Sprintf("Ship one CreateOS page targeting %q and link it from the homepage/docs.", phrase),
+		fmt.Sprintf("Ship one CreateOS blog targeting %q and link it from the homepage/docs.", phrase),
 		fmt.Sprintf("Publish one article with screenshots, code samples, and a direct comparison to %s if relevant.", competitor),
-		fmt.Sprintf("Request indexing for the new page and refresh internal links after shipping. Example source: %s", example),
+		fmt.Sprintf("Request indexing for the new blog and refresh internal links after shipping. Example source: %s", example),
 	}
 }
 
@@ -696,7 +724,7 @@ func buildIncidentPlan(competitor string, evidence []string) []string {
 		example = evidence[0]
 	}
 	return []string{
-		fmt.Sprintf("Publish a CreateOS trust page that addresses the exact %s event angle.", competitor),
+		fmt.Sprintf("Publish a CreateOS trust blog that addresses the exact %s event angle.", competitor),
 		"Add a comparison post explaining reliability, observability, backups, and support.",
 		fmt.Sprintf("Tie the narrative to a specific event URL or announcement. Example: %s", example),
 	}
@@ -730,7 +758,7 @@ func buildVelocityPlan(competitor string) []string {
 func buildWhatToDo(phrase string, competitor string) string {
 	switch {
 	case strings.Contains(phrase, "pricing"):
-		return "Ship a pricing page, comparison page, and one bottom-funnel article before they own the query."
+		return "Ship pricing and comparison blogs before competitors own the query."
 	case strings.Contains(phrase, "mcp") || strings.Contains(phrase, "integration"):
 		return "Publish a CreateOS integration or MCP page that shows the exact workflow users want."
 	case strings.Contains(phrase, "agent"):
@@ -740,7 +768,7 @@ func buildWhatToDo(phrase string, competitor string) string {
 	case strings.Contains(phrase, "security") || strings.Contains(phrase, "incident") || strings.Contains(phrase, "outage"):
 		return "Use the trust angle immediately: publish a resilience page and comparison article."
 	default:
-		return fmt.Sprintf("Create a CreateOS page that beats %s on this exact topic cluster.", competitor)
+		return fmt.Sprintf("Create a CreateOS blog that beats %s on this exact topic cluster.", competitor)
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -128,7 +129,6 @@ func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *tes
 		ContentAuthor:          "CreateOS",
 		ContentCoverURL:        "https://example.com/default-cover.png",
 		OpenRouterAPIKey:       "openrouter-key",
-		OpenRouterCoverModel:   "image-model",
 		CloudinaryCloudName:    "demo-cloud",
 		CloudinaryAPIKey:       "cloudinary-key",
 		CloudinaryAPISecret:    "cloudinary-secret",
@@ -138,7 +138,7 @@ func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *tes
 		ContentPlan: []competitor.ContentRecommendation{{
 			SuggestedTitle: "Test Post",
 			Draft: &competitor.BlogDraft{
-				Route:           "/blog/test-post",
+				Route:           "/blogs/test-post",
 				Title:           "Test Post",
 				MetaDescription: "Description",
 				BodyMarkdown:    "# Test Post\n\nBody",
@@ -149,6 +149,209 @@ func TestWriteCompetitorContentPullRequestPreflightsBeforeCoverGeneration(t *tes
 	require.EqualError(t, err, "content file already exists on main: blogs/test-post.md")
 	require.Zero(t, openRouterCalls, "cover generation must not run after duplicate content preflight fails")
 	require.Zero(t, cloudinaryCalls, "cover upload must not run after duplicate content preflight fails")
+}
+
+func TestWriteCompetitorContentPullRequestSkipsDuplicateDraftAndPublishesNext(t *testing.T) {
+	oldTransport := http.DefaultTransport
+	var blogWrites []string
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.github.com" {
+			return nil, fmt.Errorf("unexpected request to %s", r.URL.String())
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/README.md":
+			return jsonResponse(http.StatusOK, `{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/test-post.md":
+			return jsonResponse(http.StatusOK, `{"sha":"existing-sha"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/next-post.md":
+			return jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			return jsonResponse(http.StatusOK, `[]`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/git/ref/heads/main":
+			return jsonResponse(http.StatusOK, `{"object":{"sha":"base-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/git/refs":
+			return jsonResponse(http.StatusCreated, `{}`), nil
+		case r.Method == http.MethodPut && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/next-post.md":
+			blogWrites = append(blogWrites, r.URL.Path)
+			return jsonResponse(http.StatusOK, `{"content":{"sha":"new-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			return jsonResponse(http.StatusCreated, `{"html_url":"https://github.com/NodeOps-app/createos-content/pull/50","number":50}`), nil
+		default:
+			return jsonResponse(http.StatusTeapot, `{"message":"unexpected github request"}`), nil
+		}
+	})
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	err := writeCompetitorContentPullRequest(context.Background(), &config.Config{
+		GitHubToken:       "ghp_test",
+		ContentRepo:       "NodeOps-app/createos-content",
+		ContentBaseBranch: "main",
+		ContentAuthor:     "CreateOS",
+		ContentCoverURL:   "https://example.com/default-cover.png",
+	}, competitor.Summary{
+		GeneratedAtUTC: "2026-05-22T10:30:00Z",
+		ContentPlan: []competitor.ContentRecommendation{
+			{
+				SuggestedTitle: "Test Post",
+				Draft: &competitor.BlogDraft{
+					Route:           "/blogs/test-post",
+					Title:           "Test Post",
+					MetaDescription: "Description",
+					BodyMarkdown:    "# Test Post\n\nBody",
+				},
+			},
+			{
+				SuggestedTitle: "Next Post",
+				Draft: &competitor.BlogDraft{
+					Route:           "/blogs/next-post",
+					Title:           "Next Post",
+					MetaDescription: "Description",
+					BodyMarkdown:    "# Next Post\n\nBody",
+				},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"/repos/NodeOps-app/createos-content/contents/blogs/next-post.md"}, blogWrites)
+}
+
+func TestWriteCompetitorContentPullRequestSkipsOpenPRDuplicateDraftAndPublishesNext(t *testing.T) {
+	oldTransport := http.DefaultTransport
+	var blogWrites []string
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.github.com" {
+			return nil, fmt.Errorf("unexpected request to %s", r.URL.String())
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/README.md":
+			return jsonResponse(http.StatusOK, `{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/open-post.md":
+			return jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/next-post.md":
+			return jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			return jsonResponse(http.StatusOK, `[{"number":58}]`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls/58/files":
+			return jsonResponse(http.StatusOK, `[{"filename":"blogs/open-post.md"}]`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/git/ref/heads/main":
+			return jsonResponse(http.StatusOK, `{"object":{"sha":"base-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/git/refs":
+			return jsonResponse(http.StatusCreated, `{}`), nil
+		case r.Method == http.MethodPut && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/next-post.md":
+			blogWrites = append(blogWrites, r.URL.Path)
+			return jsonResponse(http.StatusOK, `{"content":{"sha":"new-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			return jsonResponse(http.StatusCreated, `{"html_url":"https://github.com/NodeOps-app/createos-content/pull/60","number":60}`), nil
+		default:
+			return jsonResponse(http.StatusTeapot, `{"message":"unexpected github request"}`), nil
+		}
+	})
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	err := writeCompetitorContentPullRequest(context.Background(), &config.Config{
+		GitHubToken:       "ghp_test",
+		ContentRepo:       "NodeOps-app/createos-content",
+		ContentBaseBranch: "main",
+		ContentAuthor:     "CreateOS",
+		ContentCoverURL:   "https://example.com/default-cover.png",
+	}, competitor.Summary{
+		GeneratedAtUTC: "2026-05-22T10:30:00Z",
+		ContentPlan: []competitor.ContentRecommendation{
+			{
+				SuggestedTitle: "Open Post",
+				Draft: &competitor.BlogDraft{
+					Route:           "/blogs/open-post",
+					Title:           "Open Post",
+					MetaDescription: "Description",
+					BodyMarkdown:    "# Open Post\n\nBody",
+				},
+			},
+			{
+				SuggestedTitle: "Next Post",
+				Draft: &competitor.BlogDraft{
+					Route:           "/blogs/next-post",
+					Title:           "Next Post",
+					MetaDescription: "Description",
+					BodyMarkdown:    "# Next Post\n\nBody",
+				},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"/repos/NodeOps-app/createos-content/contents/blogs/next-post.md"}, blogWrites)
+}
+
+func TestWriteCompetitorContentPullRequestCreatesMitigatedPRForHighRiskDraft(t *testing.T) {
+	oldTransport := http.DefaultTransport
+	type prCreate struct {
+		Title string
+		Body  string
+	}
+	prs := []prCreate{}
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.github.com" {
+			return nil, fmt.Errorf("unexpected request to %s", r.URL.String())
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/README.md":
+			return jsonResponse(http.StatusOK, `{"encoding":"base64","content":"YmxvZ3MvCnRpdGxlOgpzbHVnOgpkZXNjcmlwdGlvbjoKYXV0aG9yOgpyZWFkX3RpbWU6CmNvdmVyOgpwdWJsaXNoZWRfYXQ6CmRlc3RpbmF0aW9uCg=="}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/ai-agent-platforms-enterprise-teams-2026.md":
+			return jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/contents/blogs/ai-agent-platforms-enterprise-teams-2026-mitigated.md":
+			return jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			return jsonResponse(http.StatusOK, `[]`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/NodeOps-app/createos-content/git/ref/heads/main":
+			return jsonResponse(http.StatusOK, `{"object":{"sha":"base-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/git/refs":
+			return jsonResponse(http.StatusCreated, `{}`), nil
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/repos/NodeOps-app/createos-content/contents/blogs/"):
+			return jsonResponse(http.StatusOK, `{"content":{"sha":"new-sha"}}`), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/NodeOps-app/createos-content/pulls":
+			body, _ := io.ReadAll(r.Body)
+			title := jsonField(body, "title")
+			prBody := jsonField(body, "body")
+			prs = append(prs, prCreate{Title: title, Body: prBody})
+			return jsonResponse(http.StatusCreated, fmt.Sprintf(`{"html_url":"https://github.com/NodeOps-app/createos-content/pull/%d","number":%d}`, len(prs)+60, len(prs)+60)), nil
+		default:
+			return jsonResponse(http.StatusTeapot, `{"message":"unexpected github request"}`), nil
+		}
+	})
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	riskyBody := "# Top AI Agent Platforms for Enterprise Teams in 2026\n\n" + strings.Repeat("AI agent platforms help enterprise teams evaluate AI agent platforms. ", 18)
+	err := writeCompetitorContentPullRequest(context.Background(), &config.Config{
+		GitHubToken:       "ghp_test",
+		ContentRepo:       "NodeOps-app/createos-content",
+		ContentBaseBranch: "main",
+		ContentAuthor:     "CreateOS",
+		ContentCoverURL:   "https://example.com/default-cover.png",
+	}, competitor.Summary{
+		GeneratedAtUTC: "2026-06-15T10:30:00Z",
+		ContentPlan: []competitor.ContentRecommendation{{
+			Opportunity:    "Manual content request: Top AI Agent Platforms for Enterprise Teams in 2026",
+			SuggestedTitle: "Top AI Agent Platforms for Enterprise Teams in 2026",
+			Theme:          "comparison",
+			PageType:       "comparison page",
+			Pillar:         "AI builder comparisons",
+			Draft: &competitor.BlogDraft{
+				Route:           "/blogs/ai-agent-platforms-enterprise-teams-2026",
+				Title:           "Top AI Agent Platforms for Enterprise Teams in 2026",
+				MetaDescription: "Compare AI agent platforms for enterprise teams.",
+				BodyMarkdown:    riskyBody,
+			},
+		}},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, prs, 2)
+	require.Equal(t, "RISKY: Add CreateOS SEO blog: Top AI Agent Platforms for Enterprise Teams in 2026", prs[0].Title)
+	require.Contains(t, prs[0].Body, "## SEO Risk Review: HIGH")
+	require.Contains(t, prs[0].Body, "Keyword stuffing")
+	require.Equal(t, "MITIGATED: Add CreateOS SEO blog: Top AI Agent Platforms for Enterprise Teams in 2026", prs[1].Title)
+	require.Contains(t, prs[1].Body, "Related PR: https://github.com/NodeOps-app/createos-content/pull/61")
 }
 
 func TestNewCoverUploaderFromConfigRequiresAllCloudinaryCredentials(t *testing.T) {
@@ -177,8 +380,6 @@ func TestNewCoverUploaderFromConfigRequiresAllCloudinaryCredentials(t *testing.T
 
 func TestShouldGenerateCoverWithCloudinaryCredentialsAndEmptyAssetBaseURL(t *testing.T) {
 	cfg := &config.Config{
-		OpenRouterAPIKey:       "openrouter-key",
-		OpenRouterCoverModel:   "image-model",
 		CloudinaryCloudName:    "demo-cloud",
 		CloudinaryAPIKey:       "cloudinary-key",
 		CloudinaryAPISecret:    "cloudinary-secret",
@@ -190,8 +391,6 @@ func TestShouldGenerateCoverWithCloudinaryCredentialsAndEmptyAssetBaseURL(t *tes
 
 func TestShouldGenerateCoverWithAssetBaseURLAndNoCloudinary(t *testing.T) {
 	cfg := &config.Config{
-		OpenRouterAPIKey:         "openrouter-key",
-		OpenRouterCoverModel:     "image-model",
 		ContentCoverAssetBaseURL: "https://cdn.example.com/createos-content",
 		CloudinaryUploadFolder:   "createos/blog-covers",
 	}
@@ -201,8 +400,6 @@ func TestShouldGenerateCoverWithAssetBaseURLAndNoCloudinary(t *testing.T) {
 
 func TestShouldGenerateCoverRequiresPublishTarget(t *testing.T) {
 	cfg := &config.Config{
-		OpenRouterAPIKey:       "openrouter-key",
-		OpenRouterCoverModel:   "image-model",
 		CloudinaryUploadFolder: "createos/blog-covers",
 	}
 
@@ -249,4 +446,11 @@ func jsonResponse(statusCode int, body string) *http.Response {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+}
+
+func jsonField(body []byte, field string) string {
+	var parsed map[string]any
+	_ = json.Unmarshal(body, &parsed)
+	value, _ := parsed[field].(string)
+	return value
 }

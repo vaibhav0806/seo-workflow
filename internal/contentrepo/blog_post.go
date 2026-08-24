@@ -14,16 +14,19 @@ const DestinationCreateOS = "createos"
 var nonSlugChars = regexp.MustCompile(`[^a-z0-9]+`)
 
 type BlogPost struct {
-	Title        string
-	Slug         string
-	Description  string
-	Author       string
-	ReadTime     string
-	Tags         []string
-	Cover        string
-	PublishedAt  time.Time
-	Destination  string
-	BodyMarkdown string
+	Title             string
+	Slug              string
+	Description       string
+	Author            string
+	ReadTime          string
+	Tags              []string
+	Cover             string
+	PublishedAt       time.Time
+	UpdatedAt         time.Time
+	Destination       string
+	PrimaryKeyword    string
+	SecondaryKeywords []string
+	BodyMarkdown      string
 }
 
 func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt time.Time, author string, coverURL string) (BlogPost, error) {
@@ -32,6 +35,9 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 	}
 	draft := *recommendation.Draft
 	title := strings.TrimSpace(draft.Title)
+	if competitor.IsManualContentRecommendation(recommendation) && strings.TrimSpace(recommendation.SuggestedTitle) != "" {
+		title = strings.TrimSpace(recommendation.SuggestedTitle)
+	}
 	if title == "" {
 		title = strings.TrimSpace(recommendation.SuggestedTitle)
 	}
@@ -40,7 +46,14 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 		return BlogPost{}, fmt.Errorf("draft requires title and body")
 	}
 
-	slug := slugFromRoute(draft.Route)
+	route := strings.TrimSpace(draft.Route)
+	if competitor.IsManualContentRecommendation(recommendation) && strings.TrimSpace(recommendation.SuggestedSlug) != "" {
+		route = strings.TrimSpace(recommendation.SuggestedSlug)
+	}
+	if !strings.HasPrefix(route, "/blogs/") {
+		return BlogPost{}, fmt.Errorf("draft route must start with /blogs/: %q", route)
+	}
+	slug := slugFromRoute(route)
 	if slug == "" {
 		slug = slugify(title)
 	}
@@ -59,7 +72,7 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 
 	author = strings.TrimSpace(author)
 	if author == "" {
-		author = "CreateOS"
+		author = "Naman Kabra"
 	}
 	coverURL = strings.TrimSpace(coverURL)
 	if coverURL == "" {
@@ -73,16 +86,19 @@ func BuildBlogPost(recommendation competitor.ContentRecommendation, generatedAt 
 	})
 
 	return BlogPost{
-		Title:        title,
-		Slug:         slug,
-		Description:  description,
-		Author:       author,
-		ReadTime:     estimatedReadTime(body),
-		Tags:         tags,
-		Cover:        coverURL,
-		PublishedAt:  generatedAt.UTC(),
-		Destination:  DestinationCreateOS,
-		BodyMarkdown: body,
+		Title:             title,
+		Slug:              slug,
+		Description:       description,
+		Author:            author,
+		ReadTime:          estimatedReadTime(body),
+		Tags:              tags,
+		Cover:             coverURL,
+		PublishedAt:       generatedAt.UTC(),
+		UpdatedAt:         generatedAt.UTC(),
+		Destination:       DestinationCreateOS,
+		PrimaryKeyword:    strings.TrimSpace(recommendation.PrimaryKeyword),
+		SecondaryKeywords: uniqueValues(recommendation.SecondaryKeywords),
+		BodyMarkdown:      body,
 	}, nil
 }
 
@@ -106,12 +122,19 @@ func (post BlogPost) Markdown() string {
 	lines = append(lines,
 		"cover: "+yamlQuote(post.Cover),
 		"published_at: "+yamlQuote(post.PublishedAt.UTC().Format("2006-01-02T15:04:05.000Z")),
+		"updated_at: "+yamlQuote(post.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z")),
 		"destination: "+post.Destination,
-		"---",
-		"",
-		strings.TrimSpace(post.BodyMarkdown),
-		"",
 	)
+	if post.PrimaryKeyword != "" {
+		lines = append(lines, "primary_keyword: "+yamlQuote(post.PrimaryKeyword))
+	}
+	if len(post.SecondaryKeywords) > 0 {
+		lines = append(lines, "secondary_keywords:")
+		for _, keyword := range post.SecondaryKeywords {
+			lines = append(lines, "  - "+yamlQuote(keyword))
+		}
+	}
+	lines = append(lines, "---", "", strings.TrimSpace(post.BodyMarkdown), "")
 	return strings.Join(lines, "\n")
 }
 
@@ -170,6 +193,14 @@ func estimatedReadTime(markdown string) string {
 }
 
 func uniqueTags(values []string) []string {
+	out := uniqueValues(values)
+	if len(out) == 0 {
+		return []string{"createos"}
+	}
+	return out
+}
+
+func uniqueValues(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, value := range values {
@@ -183,9 +214,6 @@ func uniqueTags(values []string) []string {
 		}
 		seen[key] = struct{}{}
 		out = append(out, value)
-	}
-	if len(out) == 0 {
-		return []string{"createos"}
 	}
 	return out
 }

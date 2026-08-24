@@ -18,11 +18,9 @@ const (
 	defaultSitemapPath            = "public/sitemap.xml"
 	defaultContentRepo            = "NodeOps-app/createos-content"
 	defaultContentBaseBranch      = "main"
-	defaultContentAuthor          = "CreateOS"
+	defaultContentAuthor          = "Naman Kabra"
 	defaultContentReviewer        = "navedux,vaibhav0806"
 	defaultContentCoverURL        = "https://cdn.hashnode.com/res/hashnode/image/upload/v1770132301745/89493e47-b967-46a6-9ff9-60c55aaaa3de.png"
-	defaultContentCoverStyle      = "auto"
-	defaultOpenRouterCoverModel   = "google/gemini-2.5-flash-image"
 	defaultCloudinaryUploadFolder = "createos/blog-covers"
 	defaultCompetitorModel        = "moonshotai/kimi-k2"
 	defaultWindowDays             = 30
@@ -42,22 +40,26 @@ type Config struct {
 	GitHubInstallationID string
 	ScanQPM              int
 
-	ScanProperty      string
-	ScanRepo          string
-	ScanSitemapURL    string
-	GSCAccessToken    string
-	GitHubToken       string
-	GitHubBaseBranch  string
-	GitHubSitemapPath string
-	OneshotReportPath string
-	DryRun            bool
-	LookbackDays      int
-	RowLimit          int
-	HTTPTimeoutSecs   int
+	ScanProperty         string
+	ScanRepo             string
+	ScanSitemapURL       string
+	GSCAccessToken       string
+	GitHubToken          string
+	GitHubBaseBranch     string
+	GitHubSitemapPath    string
+	OneshotReportPath    string
+	PerformanceStatePath string
+	DryRun               bool
+	LookbackDays         int
+	RowLimit             int
+	HTTPTimeoutSecs      int
 
 	CompetitorReportPath               string
+	CompetitorStatePath                string
 	CompetitorWindowDays               int
 	OurSitemapURL                      string
+	AEOObservationsPath                string
+	ContentInventoryPath               string
 	OpenRouterAPIKey                   string
 	OpenRouterModel                    string
 	OpenRouterFallbackModel            string
@@ -66,6 +68,12 @@ type Config struct {
 	OpenRouterTopicTimeoutSecs         int
 	OpenRouterDraftTimeoutSecs         int
 	CompetitorContentDraftLimit        int
+	ManualContentTitle                 string
+	ManualContentTheme                 string
+	ManualContentSlug                  string
+	ManualContentAngle                 string
+	ManualContentCompetitor            string
+	ManualContentEvidenceURLs          []string
 	NotionAPIKey                       string
 	NotionCompetitorReportParentPageID string
 	ContentRepo                        string
@@ -73,9 +81,7 @@ type Config struct {
 	ContentAuthor                      string
 	ContentReviewer                    string
 	ContentCoverURL                    string
-	ContentCoverStyle                  string
 	ContentCoverAssetBaseURL           string
-	OpenRouterCoverModel               string
 	CloudinaryCloudName                string
 	CloudinaryAPIKey                   string
 	CloudinaryAPISecret                string
@@ -108,8 +114,6 @@ func Load() (*Config, error) {
 		ContentAuthor:               defaultContentAuthor,
 		ContentReviewer:             defaultContentReviewer,
 		ContentCoverURL:             defaultContentCoverURL,
-		ContentCoverStyle:           defaultContentCoverStyle,
-		OpenRouterCoverModel:        defaultOpenRouterCoverModel,
 		CloudinaryUploadFolder:      defaultCloudinaryUploadFolder,
 		CompetitorWindowDays:        defaultWindowDays,
 		OpenRouterTopicTimeoutSecs:  defaultOpenRouterTopicTimeout,
@@ -164,6 +168,7 @@ func Load() (*Config, error) {
 			cfg.GitHubSitemapPath = overridePath
 		}
 		cfg.OneshotReportPath = strings.TrimSpace(os.Getenv("ONESHOT_REPORT_PATH"))
+		cfg.PerformanceStatePath = strings.TrimSpace(os.Getenv("SEO_PERFORMANCE_STATE_PATH"))
 
 		if rawDryRun := strings.TrimSpace(os.Getenv("WORKER_DRY_RUN")); rawDryRun != "" {
 			parsedDryRun, err := strconv.ParseBool(rawDryRun)
@@ -211,9 +216,13 @@ func Load() (*Config, error) {
 			sort.Strings(missing)
 			return nil, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
 		}
-	case "oneshot-competitor":
+	case "oneshot-competitor", "manual-content":
 		cfg.OurSitemapURL = strings.TrimSpace(os.Getenv("OUR_SITEMAP_URL"))
 		cfg.CompetitorReportPath = strings.TrimSpace(os.Getenv("COMPETITOR_REPORT_PATH"))
+		cfg.CompetitorStatePath = strings.TrimSpace(os.Getenv("COMPETITOR_STATE_PATH"))
+		cfg.AEOObservationsPath = strings.TrimSpace(os.Getenv("AEO_OBSERVATIONS_PATH"))
+		cfg.ContentInventoryPath = strings.TrimSpace(os.Getenv("CONTENT_INVENTORY_PATH"))
+		cfg.PerformanceStatePath = strings.TrimSpace(os.Getenv("SEO_PERFORMANCE_STATE_PATH"))
 		cfg.OpenRouterAPIKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 		cfg.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 		cfg.NotionAPIKey = strings.TrimSpace(os.Getenv("NOTION_API_KEY"))
@@ -233,13 +242,7 @@ func Load() (*Config, error) {
 		if contentCoverURL := strings.TrimSpace(os.Getenv("CONTENT_DEFAULT_COVER_URL")); contentCoverURL != "" {
 			cfg.ContentCoverURL = contentCoverURL
 		}
-		if contentCoverStyle := strings.TrimSpace(os.Getenv("CONTENT_COVER_STYLE")); contentCoverStyle != "" {
-			cfg.ContentCoverStyle = contentCoverStyle
-		}
 		cfg.ContentCoverAssetBaseURL = strings.TrimSpace(os.Getenv("CONTENT_COVER_ASSET_BASE_URL"))
-		if coverModel := strings.TrimSpace(os.Getenv("OPENROUTER_COVER_MODEL")); coverModel != "" {
-			cfg.OpenRouterCoverModel = coverModel
-		}
 		cfg.CloudinaryCloudName = strings.TrimSpace(os.Getenv("CLOUDINARY_CLOUD_NAME"))
 		cfg.CloudinaryAPIKey = strings.TrimSpace(os.Getenv("CLOUDINARY_API_KEY"))
 		cfg.CloudinaryAPISecret = strings.TrimSpace(os.Getenv("CLOUDINARY_API_SECRET"))
@@ -252,6 +255,12 @@ func Load() (*Config, error) {
 		cfg.OpenRouterFallbackModel = strings.TrimSpace(os.Getenv("OPENROUTER_FALLBACK_MODEL"))
 		cfg.OpenRouterDraftModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_MODEL"))
 		cfg.OpenRouterDraftFallbackModel = strings.TrimSpace(os.Getenv("OPENROUTER_DRAFT_FALLBACK_MODEL"))
+		cfg.ManualContentTitle = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_TITLE"))
+		cfg.ManualContentTheme = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_THEME"))
+		cfg.ManualContentSlug = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_SLUG"))
+		cfg.ManualContentAngle = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_ANGLE"))
+		cfg.ManualContentCompetitor = strings.TrimSpace(os.Getenv("CONTENT_MANUAL_COMPETITOR"))
+		cfg.ManualContentEvidenceURLs = parseListEnv(os.Getenv("CONTENT_MANUAL_EVIDENCE_URLS"))
 		topicTimeoutSecs, err := parsePositiveIntEnv("OPENROUTER_TOPIC_TIMEOUT_SEC", defaultOpenRouterTopicTimeout)
 		if err != nil {
 			return nil, err
@@ -278,9 +287,23 @@ func Load() (*Config, error) {
 		}
 		cfg.HTTPTimeoutSecs = timeoutSecs
 
-		missing := make([]string, 0, 1)
-		if cfg.OurSitemapURL == "" {
+		missing := make([]string, 0, 4)
+		if cfg.WorkerMode == "oneshot-competitor" && cfg.OurSitemapURL == "" {
 			missing = append(missing, "OUR_SITEMAP_URL")
+		}
+		if cfg.WorkerMode == "manual-content" {
+			if cfg.ManualContentTitle == "" {
+				missing = append(missing, "CONTENT_MANUAL_TITLE")
+			}
+			if cfg.OpenRouterAPIKey == "" {
+				missing = append(missing, "OPENROUTER_API_KEY")
+			}
+			if cfg.GitHubToken == "" {
+				missing = append(missing, "GITHUB_TOKEN")
+			}
+			if cfg.CompetitorReportPath == "" {
+				missing = append(missing, "COMPETITOR_REPORT_PATH")
+			}
 		}
 		if len(missing) > 0 {
 			return nil, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
@@ -290,6 +313,26 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseListEnv(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\t' || r == ';'
+	})
+	values := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
 }
 
 func parsePositiveIntEnv(key string, defaultValue int) (int, error) {

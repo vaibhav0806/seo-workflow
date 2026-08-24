@@ -16,6 +16,13 @@ func TestClassifyThemes(t *testing.T) {
 	require.Contains(t, themes, "security")
 }
 
+func TestClassifyThemesRecognizesStackAIStyleTopics(t *testing.T) {
+	themes := classifyThemes("https://www.stackai.com/insights/best-ai-agent-building-platforms-in-2026")
+
+	require.Contains(t, themes, "agents")
+	require.Contains(t, themes, "comparison")
+}
+
 func TestDeriveOpportunitiesPrefersTopicSpecificSignals(t *testing.T) {
 	ours := SiteSnapshot{
 		Name:           "createos",
@@ -310,8 +317,8 @@ func TestDeriveTopicOpportunitiesBuildsActionableWhatToDo(t *testing.T) {
 	opportunities := deriveTopicOpportunities(ours, topics)
 
 	require.Len(t, opportunities, 1)
-	require.Contains(t, opportunities[0].WhatToDo, "comparison page")
-	require.Contains(t, opportunities[0].WhatToDo, "/compare/ai-tool-comparison-benchmarking")
+	require.Contains(t, opportunities[0].WhatToDo, "comparison blog")
+	require.Contains(t, opportunities[0].WhatToDo, "/blogs/ai-tool-comparison-benchmarking")
 	require.NotContains(t, opportunities[0].WhatToDo, "Ship one focused page or article")
 	require.Contains(t, strings.Join(opportunities[0].HowToExecute, " "), "Cursor vs Bolt vs Lovable")
 }
@@ -342,11 +349,20 @@ func TestBuildContentRecommendationsCreatesClusterPlan(t *testing.T) {
 
 	require.Len(t, recommendations, 2)
 	require.Equal(t, 1, recommendations[0].Priority)
-	require.Equal(t, "comparison page", recommendations[0].PageType)
-	require.Equal(t, "/compare/ai-tool-comparison-benchmarking", recommendations[0].SuggestedSlug)
+	require.Equal(t, "comparison blog", recommendations[0].PageType)
+	require.Equal(t, "/blogs/ai-tool-comparison-benchmarking", recommendations[0].SuggestedSlug)
+	require.Equal(t, "ai tool comparison benchmarking", recommendations[0].PrimaryKeyword)
+	require.NotEmpty(t, recommendations[0].SecondaryKeywords)
 	require.NotEmpty(t, recommendations[0].ClusterPages)
-	require.Equal(t, "use-case landing page", recommendations[1].PageType)
-	require.Contains(t, recommendations[1].SuggestedSlug, "/use-cases/")
+	require.Equal(t, "use-case blog", recommendations[1].PageType)
+	require.Contains(t, recommendations[1].SuggestedSlug, "/blogs/")
+}
+
+func TestSuggestedSlugAlwaysUsesCreateOSBlogRoute(t *testing.T) {
+	themes := []string{"comparison", "usecases", "vibecoding", "enterprise", "security", "integrations", "workflow", "agents", "ai", "general"}
+	for _, theme := range themes {
+		require.Equal(t, "/blogs/example-topic", suggestedSlug("Example Topic", theme), theme)
+	}
 }
 
 func TestRecommendationCopyAvoidsDuplicatedIntentAndPreservesAcronyms(t *testing.T) {
@@ -406,4 +422,24 @@ func TestBuildSnapshotSkipsUndatedEntries(t *testing.T) {
 	snapshot := buildSnapshot("createos", "https://createos.sh/sitemap.xml", entries, windowStart)
 	require.Equal(t, 2, snapshot.TotalURLs)
 	require.Equal(t, 1, snapshot.RecentURLCount)
+}
+
+func TestBuildSnapshotFromStateDiffUsesFirstSeenWhenNoLastmod(t *testing.T) {
+	now := time.Date(2026, 6, 2, 8, 0, 0, 0, time.UTC)
+	windowStart := now.AddDate(0, 0, -30)
+	diff := StateDiff{
+		NewURLs: []URLState{
+			{
+				URL:             "https://www.stackai.com/insights/best-ai-agent-building-platforms-in-2026",
+				FirstSeenAt:     now.Format(time.RFC3339),
+				FreshnessSource: "first_seen",
+			},
+		},
+	}
+
+	snapshot := buildSnapshotFromStateDiff("stackai", "https://www.stackai.com/sitemap.xml", diff, windowStart)
+
+	require.Equal(t, 1, snapshot.RecentURLCount)
+	require.Equal(t, "https://www.stackai.com/insights/best-ai-agent-building-platforms-in-2026", snapshot.RecentURLs[0].URL)
+	require.Contains(t, snapshot.RecentURLs[0].ThemeTags, "agents")
 }

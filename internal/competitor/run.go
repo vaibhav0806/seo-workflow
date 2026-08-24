@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nodeops/seo-workflow/internal/config"
+	"github.com/nodeops/seo-workflow/internal/gsc"
 )
 
 type CompetitorTarget struct {
@@ -48,19 +49,25 @@ type Opportunity struct {
 }
 
 type ContentRecommendation struct {
-	Priority       int                         `json:"priority"`
-	Opportunity    string                      `json:"opportunity"`
-	Competitor     string                      `json:"competitor"`
-	Theme          string                      `json:"theme"`
-	PageType       string                      `json:"pageType"`
-	SuggestedSlug  string                      `json:"suggestedSlug"`
-	SuggestedTitle string                      `json:"suggestedTitle"`
-	TargetIntent   string                      `json:"targetIntent"`
-	ContentAngle   string                      `json:"contentAngle"`
-	Pillar         string                      `json:"pillar"`
-	ClusterPages   []ContentPageRecommendation `json:"clusterPages,omitempty"`
-	SourceEvidence []string                    `json:"sourceEvidence,omitempty"`
-	Draft          *BlogDraft                  `json:"draft,omitempty"`
+	Priority          int                         `json:"priority"`
+	Opportunity       string                      `json:"opportunity"`
+	Competitor        string                      `json:"competitor"`
+	Theme             string                      `json:"theme"`
+	PageType          string                      `json:"pageType"`
+	SuggestedSlug     string                      `json:"suggestedSlug"`
+	SuggestedTitle    string                      `json:"suggestedTitle"`
+	TargetIntent      string                      `json:"targetIntent"`
+	ContentAngle      string                      `json:"contentAngle"`
+	Pillar            string                      `json:"pillar"`
+	PrimaryKeyword    string                      `json:"primaryKeyword"`
+	SecondaryKeywords []string                    `json:"secondaryKeywords,omitempty"`
+	Decision          ContentDecision             `json:"decision,omitempty"`
+	ExistingRoute     string                      `json:"existingRoute,omitempty"`
+	DecisionReason    string                      `json:"decisionReason,omitempty"`
+	SearchSignals     []gsc.SearchOpportunity     `json:"searchSignals,omitempty"`
+	ClusterPages      []ContentPageRecommendation `json:"clusterPages,omitempty"`
+	SourceEvidence    []string                    `json:"sourceEvidence,omitempty"`
+	Draft             *BlogDraft                  `json:"draft,omitempty"`
 }
 
 type BlogDraft struct {
@@ -110,17 +117,21 @@ type TopicSummary struct {
 }
 
 type Summary struct {
-	GeneratedAtUTC  string                  `json:"generatedAtUtc"`
-	WindowDays      int                     `json:"windowDays"`
-	WindowStartUTC  string                  `json:"windowStartUtc"`
-	OurSite         SiteSnapshot            `json:"ourSite"`
-	Competitors     []SiteSnapshot          `json:"competitors"`
-	ExtractedTopics []TopicSummary          `json:"extractedTopics,omitempty"`
-	Opportunities   []Opportunity           `json:"opportunities"`
-	ContentPlan     []ContentRecommendation `json:"recommendedContentPlan,omitempty"`
-	Warnings        []string                `json:"warnings"`
-	OpenRouterModel string                  `json:"openRouterModel,omitempty"`
-	Debug           DebugSummary            `json:"debug,omitempty"`
+	GeneratedAtUTC    string                  `json:"generatedAtUtc"`
+	WindowDays        int                     `json:"windowDays"`
+	WindowStartUTC    string                  `json:"windowStartUtc"`
+	OurSite           SiteSnapshot            `json:"ourSite"`
+	Competitors       []SiteSnapshot          `json:"competitors"`
+	ExtractedTopics   []TopicSummary          `json:"extractedTopics,omitempty"`
+	Opportunities     []Opportunity           `json:"opportunities"`
+	ContentPlan       []ContentRecommendation `json:"recommendedContentPlan,omitempty"`
+	RefreshQueue      []RefreshRecommendation `json:"refreshQueue,omitempty"`
+	AEOReport         AEOReport               `json:"aeoReport,omitempty"`
+	InventoryReport   InventoryReport         `json:"inventoryReport,omitempty"`
+	SearchPerformance gsc.PerformanceReport   `json:"searchPerformance,omitempty"`
+	Warnings          []string                `json:"warnings"`
+	OpenRouterModel   string                  `json:"openRouterModel,omitempty"`
+	Debug             DebugSummary            `json:"debug,omitempty"`
 }
 
 type DebugSummary struct {
@@ -196,6 +207,8 @@ var defaultCompetitors = []CompetitorTarget{
 	{Name: "lovable", SitemapURL: "https://lovable.dev/sitemap.xml"},
 	{Name: "replit", SitemapURL: "https://replit.com/sitemap.xml"},
 	{Name: "emergent", SitemapURL: "https://emergent.sh/sitemap.xml"},
+	{Name: "stackai", SitemapURL: "https://www.stackai.com/sitemap.xml"},
+	{Name: "lyzr", SitemapURL: "https://www.lyzr.ai/sitemap.xml"},
 }
 
 const (
@@ -216,6 +229,20 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 	titleFetcher := NewTitleFetcher(cfg.HTTPTimeoutSecs)
 	warnings := make([]string, 0)
 	debug := DebugSummary{}
+	stateEnabled := strings.TrimSpace(cfg.CompetitorStatePath) != ""
+	competitorState := emptyCompetitorState()
+	nextState := competitorState
+	stateDirty := false
+	now := time.Now().UTC()
+	if stateEnabled {
+		loadedState, stateErr := loadCompetitorState(cfg.CompetitorStatePath)
+		if stateErr != nil {
+			warnings = append(warnings, fmt.Sprintf("competitor state load skipped: %v", stateErr))
+		} else {
+			competitorState = loadedState
+			nextState = loadedState
+		}
+	}
 
 	ourEntries, err := fetcher.Fetch(ctx, cfg.OurSitemapURL)
 	if err != nil {
@@ -245,7 +272,17 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 			})
 			continue
 		}
+		var diff StateDiff
+		if stateEnabled {
+			diff = buildStateDiff(nextState, target.Name, entries, now)
+			nextState = diff.NextState
+			stateDirty = true
+		}
 		snapshot := buildSnapshot(target.Name, target.SitemapURL, entries, windowStart)
+		if stateEnabled && snapshot.RecentURLCount == 0 && len(diff.NewURLs) > 0 {
+			snapshot = buildSnapshotFromStateDiff(target.Name, target.SitemapURL, diff, windowStart)
+			snapshot.TotalURLs = len(entries)
+		}
 		snapshot, titleWarnings, titleDebug, err = enrichSnapshotTitles(ctx, titleFetcher, snapshot, titleEnrichmentLimit)
 		if err != nil {
 			return Summary{}, fmt.Errorf("title enrichment failed for %s: %w", target.Name, err)
@@ -280,6 +317,17 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 		return opportunities[i].ImpactScore > opportunities[j].ImpactScore
 	})
 	contentPlan := buildContentRecommendations(opportunities)
+	if manualRecommendation, ok := manualContentRecommendationFromConfig(cfg); ok {
+		manualRecommendation = enrichManualContentEvidence(manualRecommendation, opportunities, extractedTopics, competitorSnapshots)
+		contentPlan = prependContentRecommendation(manualRecommendation, contentPlan)
+	}
+	var inventoryReport InventoryReport
+	var inventoryWarnings []string
+	contentPlan, inventoryReport, inventoryWarnings = applyConfiguredInventory(ctx, cfg, contentPlan)
+	warnings = append(warnings, inventoryWarnings...)
+	searchPerformance, performanceWarnings := loadConfiguredPerformance(cfg.PerformanceStatePath)
+	warnings = append(warnings, performanceWarnings...)
+	contentPlan = applyPerformanceSignals(contentPlan, searchPerformance)
 	if cfg.OpenRouterAPIKey != "" && len(contentPlan) > 0 {
 		draftModel := strings.TrimSpace(cfg.OpenRouterDraftModel)
 		if draftModel == "" {
@@ -301,19 +349,30 @@ func Run(ctx context.Context, cfg *config.Config) (Summary, error) {
 			contentPlan = attachDraftsToContentRecommendations(contentPlan, drafts, cfg.CompetitorContentDraftLimit)
 		}
 	}
+	refreshQueue := buildRefreshRecommendations(contentPlan)
+	aeoReport := AEOReport{Prompts: buildAEOPromptMatrix(contentPlan)}
+	if stateDirty {
+		if err := saveCompetitorState(cfg.CompetitorStatePath, nextState); err != nil {
+			warnings = append(warnings, fmt.Sprintf("competitor state save skipped: %v", err))
+		}
+	}
 
 	return Summary{
-		GeneratedAtUTC:  time.Now().UTC().Format(time.RFC3339),
-		WindowDays:      cfg.CompetitorWindowDays,
-		WindowStartUTC:  windowStart.Format(time.RFC3339),
-		OurSite:         ourSnapshot,
-		Competitors:     competitorSnapshots,
-		ExtractedTopics: extractedTopics,
-		Opportunities:   opportunities,
-		ContentPlan:     contentPlan,
-		Warnings:        warnings,
-		OpenRouterModel: strings.TrimSpace(cfg.OpenRouterModel),
-		Debug:           debug,
+		GeneratedAtUTC:    time.Now().UTC().Format(time.RFC3339),
+		WindowDays:        cfg.CompetitorWindowDays,
+		WindowStartUTC:    windowStart.Format(time.RFC3339),
+		OurSite:           ourSnapshot,
+		Competitors:       competitorSnapshots,
+		ExtractedTopics:   extractedTopics,
+		Opportunities:     opportunities,
+		ContentPlan:       contentPlan,
+		RefreshQueue:      refreshQueue,
+		AEOReport:         aeoReport,
+		InventoryReport:   inventoryReport,
+		SearchPerformance: searchPerformance,
+		Warnings:          warnings,
+		OpenRouterModel:   strings.TrimSpace(cfg.OpenRouterModel),
+		Debug:             debug,
 	}, nil
 }
 
@@ -540,6 +599,48 @@ func buildSnapshot(name string, sitemapURL string, entries []rawSitemapEntry, wi
 		Name:           name,
 		SitemapURL:     sitemapURL,
 		TotalURLs:      len(entries),
+		RecentURLs:     recent,
+		RecentURLCount: len(recent),
+		ThemeCounts:    themeCounts,
+	}
+}
+
+func buildSnapshotFromStateDiff(name string, sitemapURL string, diff StateDiff, windowStart time.Time) SiteSnapshot {
+	recent := make([]SitemapEntry, 0, len(diff.NewURLs))
+	themeCounts := map[string]int{}
+	for _, state := range diff.NewURLs {
+		if isJunkPath(name, state.URL) {
+			continue
+		}
+		firstSeen, err := time.Parse(time.RFC3339, state.FirstSeenAt)
+		if err != nil || firstSeen.Before(windowStart) {
+			continue
+		}
+		themes := classifyThemes(state.URL)
+		for _, theme := range themes {
+			themeCounts[theme]++
+		}
+		lastMod := firstSeen.UTC().Format(time.RFC3339)
+		recent = append(recent, SitemapEntry{
+			URL:       state.URL,
+			LastMod:   &lastMod,
+			ThemeTags: themes,
+		})
+	}
+
+	sort.Slice(recent, func(i, j int) bool {
+		if recent[i].LastMod != nil && recent[j].LastMod != nil && *recent[i].LastMod != *recent[j].LastMod {
+			return *recent[i].LastMod > *recent[j].LastMod
+		}
+		return recent[i].URL < recent[j].URL
+	})
+	if len(recent) > 200 {
+		recent = recent[:200]
+	}
+
+	return SiteSnapshot{
+		Name:           name,
+		SitemapURL:     sitemapURL,
 		RecentURLs:     recent,
 		RecentURLCount: len(recent),
 		ThemeCounts:    themeCounts,

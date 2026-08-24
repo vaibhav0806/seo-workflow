@@ -1,40 +1,25 @@
 package contentrepo
 
 import (
-	"encoding/base64"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"image"
+	"image/color"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/image/font/gofont/goregular"
 )
 
-func TestCoverPromptAutoMapsPrototypeTopicsToGreenLushStyle(t *testing.T) {
+func TestCoverHeadlineUsesAtMostEightWords(t *testing.T) {
 	post := BlogPost{
-		Title:        "Rapid Prototyping MVP Development",
-		Description:  "How teams move from idea to working MVP without losing context.",
-		Slug:         "rapid-prototyping-mvp-development",
-		Tags:         []string{"vibecoding", "mvp"},
-		Author:       "CreateOS",
-		Cover:        "https://example.com/cover.png",
-		PublishedAt:  time.Date(2026, 5, 19, 8, 30, 0, 0, time.UTC),
-		Destination:  DestinationCreateOS,
-		BodyMarkdown: "# Rapid Prototyping\n\nBody.",
-	}
-
-	prompt := coverPrompt(post, "auto")
-
-	require.Contains(t, prompt, "Cover style: green-lush")
-	require.Contains(t, prompt, "Green Lush Aesthetic")
-	require.Contains(t, prompt, "lush, fuzzy green moss")
-	require.Contains(t, prompt, "Frutiger Aero and Solarpunk")
-	require.Contains(t, prompt, "sketch-like light trails")
-	require.Contains(t, prompt, "no readable text")
-	require.NotContains(t, prompt, "[ARTICLE-SPECIFIC")
-}
-
-func TestCoverPromptAutoMapsEnterpriseTopicsToSoftTechFurryStyle(t *testing.T) {
-	post := BlogPost{
-		Title:        "Enterprise Security Governance",
+		Title:        "How to build reliable production workflows with CreateOS today",
 		Description:  "How teams govern AI app development without fragmenting execution.",
 		Slug:         "enterprise-security-governance",
 		Tags:         []string{"security", "enterprise"},
@@ -45,90 +30,79 @@ func TestCoverPromptAutoMapsEnterpriseTopicsToSoftTechFurryStyle(t *testing.T) {
 		BodyMarkdown: "# Enterprise Security Governance\n\nBody.",
 	}
 
-	prompt := coverPrompt(post, "auto")
+	headline := coverHeadline(post)
 
-	require.Contains(t, prompt, "Cover style: soft-tech-furry")
-	require.Contains(t, prompt, "Soft-Tech Furry Aesthetic")
-	require.Contains(t, prompt, "soft, minimal white fur")
-	require.Contains(t, prompt, "No roots, no flowers")
-	require.Contains(t, prompt, "policy gates")
-	require.Contains(t, prompt, "protected workflow layers")
-	require.Contains(t, prompt, "no readable text")
-	require.NotContains(t, prompt, "lush, fuzzy green moss")
+	require.Equal(t, "How to build reliable production workflows with CreateOS", headline)
 }
 
-func TestCoverPromptAutoMapsComparisonTopicsToSurrealDreamscapeStyle(t *testing.T) {
+func TestRenderDesignSystemCoverBuilds1200By675PNG(t *testing.T) {
 	post := BlogPost{
-		Title:        "Best Lovable Alternatives for Product Teams",
-		Description:  "Compare AI app builders and choose the right route for your team.",
-		Slug:         "lovable-alternatives-product-teams",
-		Tags:         []string{"comparison", "alternatives"},
-		Author:       "CreateOS",
-		Cover:        "https://example.com/cover.png",
-		PublishedAt:  time.Date(2026, 5, 19, 8, 30, 0, 0, time.UTC),
-		Destination:  DestinationCreateOS,
-		BodyMarkdown: "# Alternatives\n\nBody.",
+		Title: "How to build better workflows with CreateOS",
+		Slug:  "better-workflows",
 	}
 
-	prompt := coverPrompt(post, "auto")
+	content, err := renderDesignSystemCover(post, goregular.TTF, goregular.TTF)
+	require.NoError(t, err)
 
-	require.Contains(t, prompt, "Cover style: surreal-dreamscape")
-	require.Contains(t, prompt, "Surreal Dreamscape Aesthetic")
-	require.Contains(t, prompt, "lavender purple, warm coral orange, and soft pink hues")
-	require.Contains(t, prompt, "two or three winding paths")
-	require.Contains(t, prompt, "no readable text")
+	config, format, err := image.DecodeConfig(bytes.NewReader(content))
+	require.NoError(t, err)
+	require.Equal(t, "png", format)
+	require.Equal(t, 1200, config.Width)
+	require.Equal(t, 675, config.Height)
+
+	decoded, _, err := image.Decode(bytes.NewReader(content))
+	require.NoError(t, err)
+	require.Equal(t, color.RGBA{R: 1, G: 88, B: 165, A: 255}, color.RGBAModel.Convert(decoded.At(0, 0)))
+	require.Equal(t, color.RGBA{R: 161, G: 225, B: 249, A: 255}, color.RGBAModel.Convert(decoded.At(0, 674)))
+	require.Equal(t, color.RGBA{R: 255, G: 255, B: 255, A: 255}, color.RGBAModel.Convert(decoded.At(50, 50)))
+	require.NotEqual(t, color.RGBAModel.Convert(decoded.At(0, 260)), color.RGBAModel.Convert(decoded.At(800, 260)))
 }
 
-func TestCoverPromptHonorsExplicitStyleOverride(t *testing.T) {
-	post := BlogPost{
-		Title:       "Enterprise Security Governance",
-		Description: "Security and governance for AI app development.",
-		Slug:        "enterprise-security-governance",
-		Tags:        []string{"security"},
-	}
+func TestRenderDesignSystemCoverRejectsHeadlineThatExceedsTemplateWidth(t *testing.T) {
+	post := BlogPost{Title: strings.Repeat("W", 100), Slug: "wide-headline"}
 
-	prompt := coverPrompt(post, "green-lush")
+	_, err := renderDesignSystemCover(post, goregular.TTF, goregular.TTF)
 
-	require.Contains(t, prompt, "Cover style: green-lush")
-	require.Contains(t, prompt, "Green Lush Aesthetic")
-	require.NotContains(t, prompt, "Soft-Tech Furry Aesthetic")
+	require.ErrorContains(t, err, "exceeds 638px at 82px")
 }
 
-func TestSelectedCoverStyleFallbackIsStableBySlug(t *testing.T) {
-	post := BlogPost{
-		Title:       "Build Better Internal Tools",
-		Description: "A general guide for product teams.",
-		Slug:        "build-better-internal-tools",
-	}
+func TestFetchCoverFontCachesVerifiedContent(t *testing.T) {
+	fontContent := []byte("font-content")
+	digest := sha256.Sum256(fontContent)
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		_, _ = w.Write(fontContent)
+	}))
+	defer server.Close()
 
-	first := selectedCoverStyle(post, "auto")
-	second := selectedCoverStyle(post, "auto")
+	first, err := fetchCoverFont(context.Background(), server.URL, hex.EncodeToString(digest[:]))
+	require.NoError(t, err)
+	second, err := fetchCoverFont(context.Background(), server.URL, hex.EncodeToString(digest[:]))
+	require.NoError(t, err)
 
-	require.Contains(t, []string{"green-lush", "soft-tech-furry", "surreal-dreamscape"}, first.ID)
-	require.Equal(t, first.ID, second.ID)
+	require.Equal(t, fontContent, first)
+	require.Equal(t, fontContent, second)
+	require.Equal(t, 1, requestCount)
 }
 
-func TestGeneratedCoverFromDataURLAllowsEmptyAssetBaseURL(t *testing.T) {
+func TestGeneratedDesignSystemCoverAllowsEmptyAssetBaseURL(t *testing.T) {
 	post := BlogPost{Slug: "test-post"}
 	content := []byte("cover-bytes")
-	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(content)
 
-	cover, err := generatedCoverFromDataURL(post, dataURL, "")
+	cover := generatedDesignSystemCover(post, content, "")
 
-	require.NoError(t, err)
 	require.Empty(t, cover.URL)
 	require.Equal(t, "covers/test-post.png", cover.Asset.Path)
 	require.Equal(t, content, cover.Asset.Content)
 }
 
-func TestGeneratedCoverFromDataURLBuildsURLWithAssetBaseURL(t *testing.T) {
+func TestGeneratedDesignSystemCoverBuildsURLWithAssetBaseURL(t *testing.T) {
 	post := BlogPost{Slug: "test-post"}
 	content := []byte("cover-bytes")
-	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(content)
 
-	cover, err := generatedCoverFromDataURL(post, dataURL, "https://cdn.example.com/createos-content/")
+	cover := generatedDesignSystemCover(post, content, "https://cdn.example.com/createos-content/")
 
-	require.NoError(t, err)
 	require.Equal(t, "https://cdn.example.com/createos-content/covers/test-post.png", cover.URL)
 	require.Equal(t, "covers/test-post.png", cover.Asset.Path)
 	require.Equal(t, content, cover.Asset.Content)

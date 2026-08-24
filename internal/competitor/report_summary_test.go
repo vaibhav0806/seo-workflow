@@ -24,6 +24,14 @@ func TestBuildReportSummaryKeepsOnlyReviewableFields(t *testing.T) {
 			{Priority: 1, Opportunity: "CreateOS should cover \"Rapid Prototyping & MVP\"", PageType: "use-case landing page", SuggestedSlug: "/use-cases/rapid-prototyping-mvp", SuggestedTitle: "Rapid Prototyping & MVP with CreateOS", TargetIntent: "persona/use-case evaluation", Pillar: "AI app-building use cases", Draft: &BlogDraft{Route: "/use-cases/rapid-prototyping-mvp", Title: "Rapid Prototyping & MVP with CreateOS", BodyMarkdown: "# Draft"}},
 			{Priority: 2, Opportunity: "CreateOS should cover \"SaaS Alternatives\"", PageType: "comparison page", SuggestedSlug: "/compare/saas-alternatives", SuggestedTitle: "SaaS Alternatives: CreateOS Comparison Guide", TargetIntent: "commercial evaluation", Pillar: "AI builder comparisons"},
 		},
+		RefreshQueue: []RefreshRecommendation{
+			{Path: "/compare/saas-alternatives", Title: "SaaS Alternatives: CreateOS Comparison Guide", Cadence: "monthly", PriorityScore: 90},
+		},
+		AEOReport: AEOReport{
+			Prompts: []AEOPrompt{
+				{Intent: "commercial_listicle", Prompt: "What are the best AI app builders?"},
+			},
+		},
 		Warnings: []string{"example warning"},
 		Debug: DebugSummary{
 			SkippedTopics: []SkippedTopicDebug{
@@ -44,4 +52,6 @@ func TestBuildReportSummaryKeepsOnlyReviewableFields(t *testing.T) {
 	require.Equal(t, "# Draft", report.RecommendedContent[0].Draft.BodyMarkdown)
 	require.Len(t, report.SkippedTopics, 1)
 	require.Equal(t, "covered-by-createos", report.SkippedTopics[0].Reason)
+	require.Equal(t, 1, report.RefreshCount)
+	require.Equal(t, 1, report.AEOPromptCount)
 }

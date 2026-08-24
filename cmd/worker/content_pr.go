@@ -13,11 +13,6 @@ import (
 )
 
 func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, summary competitor.Summary) error {
-	recommendation, ok := firstDraftRecommendation(summary.ContentPlan)
-	if !ok {
-		log.Printf("competitor content pull request skipped: no generated blog draft")
-		return nil
-	}
 	if strings.TrimSpace(cfg.GitHubToken) == "" {
 		return fmt.Errorf("GITHUB_TOKEN is required to create content pull request")
 	}
@@ -26,31 +21,56 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 	if parsed, err := time.Parse(time.RFC3339, summary.GeneratedAtUTC); err == nil {
 		generatedAt = parsed.UTC()
 	}
-	post, err := contentrepo.BuildBlogPost(recommendation, generatedAt, cfg.ContentAuthor, cfg.ContentCoverURL)
-	if err != nil {
-		return err
-	}
 	publisher := contentrepo.NewGitHubPublisher(cfg.GitHubToken, cfg.ContentRepo, cfg.ContentBaseBranch, cfg.ContentReviewer)
-	if err := publisher.ValidateCanPublish(ctx, post); err != nil {
-		return err
+
+	var duplicateErr error
+	for _, recommendation := range draftRecommendations(summary.ContentPlan) {
+		post, err := contentrepo.BuildBlogPost(recommendation, generatedAt, cfg.ContentAuthor, cfg.ContentCoverURL)
+		if err != nil {
+			return err
+		}
+		if err := publisher.ValidateCanPublish(ctx, post); err != nil {
+			if isDuplicateContentError(err) {
+				duplicateErr = err
+				log.Printf("competitor content pull request candidate skipped: %v", err)
+				continue
+			}
+			return err
+		}
+		return publishCompetitorContentPost(ctx, cfg, publisher, post)
 	}
 
+	if duplicateErr != nil {
+		return duplicateErr
+	}
+	log.Printf("competitor content pull request skipped: no generated blog draft")
+	return nil
+}
+
+func publishCompetitorContentPost(ctx context.Context, cfg *config.Config, publisher *contentrepo.GitHubPublisher, post contentrepo.BlogPost) error {
 	coverUploader := newCoverUploaderFromConfig(cfg)
 	coverAssets := []contentrepo.CoverAsset{}
-	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" && strings.TrimSpace(cfg.OpenRouterCoverModel) != "" {
-		if !shouldGenerateCover(cfg, coverUploader) {
-			log.Printf("competitor cover image generation skipped: configure Cloudinary credentials or CONTENT_COVER_ASSET_BASE_URL")
+	if !shouldGenerateCover(cfg, coverUploader) {
+		log.Printf("competitor cover image generation skipped: configure Cloudinary credentials or CONTENT_COVER_ASSET_BASE_URL")
+	} else {
+		cover, coverErr := contentrepo.GenerateDesignSystemCover(ctx, post, cfg.ContentCoverAssetBaseURL)
+		if coverErr != nil {
+			log.Printf("competitor cover image generation skipped: %v", coverErr)
 		} else {
-			cover, coverErr := contentrepo.GenerateOpenRouterCover(ctx, cfg.OpenRouterAPIKey, cfg.OpenRouterCoverModel, post, cfg.ContentCoverAssetBaseURL, cfg.ContentCoverStyle)
-			if coverErr != nil {
-				log.Printf("competitor cover image generation skipped: %v", coverErr)
-			} else {
-				coverAssets = applyGeneratedCover(ctx, &post, cover, coverUploader)
-			}
+			coverAssets = applyGeneratedCover(ctx, &post, cover, coverUploader)
 		}
 	}
 
-	result, err := publisher.Publish(ctx, post, cfg.CompetitorReportPath, coverAssets...)
+	riskReport := contentrepo.AssessSEORisk(post)
+	titlePrefix := ""
+	if riskReport.Risky {
+		titlePrefix = "RISKY:"
+	}
+	result, err := publisher.PublishWithOptions(ctx, post, contentrepo.PublishOptions{
+		SourceReportPath:    cfg.CompetitorReportPath,
+		TitlePrefix:         titlePrefix,
+		PRBodyExtraMarkdown: riskReport.Markdown(),
+	}, coverAssets...)
 	if err != nil {
 		return err
 	}
@@ -58,7 +78,41 @@ func writeCompetitorContentPullRequest(ctx context.Context, cfg *config.Config, 
 	for _, warning := range result.Warnings {
 		log.Printf("competitor content pull request warning: %s", warning)
 	}
+	if riskReport.Risky {
+		mitigatedPost := contentrepo.MitigateSEORisk(post, riskReport)
+		mitigatedResult, mitigationErr := publisher.PublishWithOptions(ctx, mitigatedPost, contentrepo.PublishOptions{
+			SourceReportPath:      cfg.CompetitorReportPath,
+			TitlePrefix:           "MITIGATED:",
+			RelatedPullRequestURL: result.PullRequestURL,
+			PRBodyExtraMarkdown:   mitigatedPRBody(riskReport),
+		})
+		if mitigationErr != nil {
+			return fmt.Errorf("create mitigated content pull request: %w", mitigationErr)
+		}
+		log.Printf("mitigated competitor content pull request created: url=%q branch=%q file=%q", mitigatedResult.PullRequestURL, mitigatedResult.Branch, mitigatedResult.FilePath)
+		for _, warning := range mitigatedResult.Warnings {
+			log.Printf("mitigated competitor content pull request warning: %s", warning)
+		}
+	}
 	return nil
+}
+
+func mitigatedPRBody(report contentrepo.SEORiskReport) string {
+	return strings.Join([]string{
+		"## Mitigated SEO Draft",
+		"",
+		"This companion PR was created because the original generated draft was marked risky. Merge either the original after human edits or this mitigated version, not both.",
+		"",
+		report.Markdown(),
+	}, "\n")
+}
+
+func isDuplicateContentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "content file already exists on ") ||
+		strings.Contains(err.Error(), "content file already exists in open PR #")
 }
 
 func newCoverUploaderFromConfig(cfg *config.Config) contentrepo.CoverUploader {
@@ -76,9 +130,6 @@ func newCoverUploaderFromConfig(cfg *config.Config) contentrepo.CoverUploader {
 
 func shouldGenerateCover(cfg *config.Config, uploader contentrepo.CoverUploader) bool {
 	if cfg == nil {
-		return false
-	}
-	if strings.TrimSpace(cfg.OpenRouterAPIKey) == "" || strings.TrimSpace(cfg.OpenRouterCoverModel) == "" {
 		return false
 	}
 	return uploader != nil || strings.TrimSpace(cfg.ContentCoverAssetBaseURL) != ""
@@ -133,6 +184,15 @@ func contentTypeFromAssetPath(assetPath string) string {
 }
 
 func firstDraftRecommendation(recommendations []competitor.ContentRecommendation) (competitor.ContentRecommendation, bool) {
+	drafts := draftRecommendations(recommendations)
+	if len(drafts) == 0 {
+		return competitor.ContentRecommendation{}, false
+	}
+	return drafts[0], true
+}
+
+func draftRecommendations(recommendations []competitor.ContentRecommendation) []competitor.ContentRecommendation {
+	out := make([]competitor.ContentRecommendation, 0, len(recommendations))
 	for _, recommendation := range recommendations {
 		if recommendation.Draft == nil {
 			continue
@@ -140,7 +200,7 @@ func firstDraftRecommendation(recommendations []competitor.ContentRecommendation
 		if strings.TrimSpace(recommendation.Draft.BodyMarkdown) == "" {
 			continue
 		}
-		return recommendation, true
+		out = append(out, recommendation)
 	}
-	return competitor.ContentRecommendation{}, false
+	return out
 }

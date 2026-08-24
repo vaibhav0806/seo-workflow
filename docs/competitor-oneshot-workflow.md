@@ -17,6 +17,8 @@ The slug analyzer remains a fallback when title fetching or LLM topic extraction
 - Lovable (`https://lovable.dev/sitemap.xml`)
 - Replit (`https://replit.com/sitemap.xml`)
 - Emergent (`https://emergent.sh/sitemap.xml`)
+- StackAI (`https://www.stackai.com/sitemap.xml`)
+- Lyzr (`https://www.lyzr.ai/sitemap.xml`)
 
 ## 1) Required env vars
 
@@ -37,11 +39,25 @@ export COMPETITOR_HTTP_TIMEOUT_SEC=30
 # write JSON report to disk
 export COMPETITOR_REPORT_PATH='competitor-report.json'
 
+# optional local state file for date-less competitor sitemap tracking
+# first run establishes a baseline; later runs treat newly observed URLs as fresh
+export COMPETITOR_STATE_PATH='tmp/competitor-state.json'
+
+# full createos-content inventory used before drafting; local checkout is fastest
+# when omitted, the configured GitHub content repo is downloaded using GITHUB_TOKEN
+export CONTENT_INVENTORY_PATH='../createos-content'
+
+# state written by WORKER_MODE=oneshot and consumed by competitor recommendations
+export SEO_PERFORMANCE_STATE_PATH='tmp/search-performance.json'
+
+# optional future manual/provider export for AI citation observations
+export AEO_OBSERVATIONS_PATH='tmp/aeo-observations.csv'
+
 # optional OpenRouter/Kimi topic extraction (primary opportunity flow when set)
 export OPENROUTER_API_KEY='sk-or-...'
 export OPENROUTER_MODEL='moonshotai/kimi-k2'
 
-# optional separate model for generated blog/page drafts
+# optional separate model for generated blog drafts
 # examples: qwen/qwen3.6-flash, qwen/qwen3.6-27b, moonshotai/kimi-k2.5
 export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
 
@@ -50,13 +66,20 @@ export OPENROUTER_DRAFT_MODEL='qwen/qwen3.6-flash'
 export OPENROUTER_DRAFT_TIMEOUT_SEC='360'
 export COMPETITOR_CONTENT_DRAFT_LIMIT='1'
 
-# optional generated cover image model
-export OPENROUTER_COVER_MODEL='google/gemini-2.5-flash-image'
+# optional manual content seed; when set, this title is drafted first and the
+# normal competitor opportunities remain available as fallback candidates
+export CONTENT_MANUAL_TITLE='Top AI Agent Platforms for Enterprise Teams in 2026'
 
-# optional generated cover prompt style
-# auto maps topic themes to one of: green-lush, soft-tech-furry, surreal-dreamscape
-export CONTENT_COVER_STYLE='auto'
+# optional manual seed controls
+# supported themes include comparison, usecases, enterprise, security,
+# integrations, workflow, agents, ai, vibecoding, deployment
+export CONTENT_MANUAL_THEME='comparison'
+export CONTENT_MANUAL_SLUG='top-ai-agent-platforms-enterprise-teams'
+export CONTENT_MANUAL_ANGLE='Rank enterprise agent platforms through a CreateOS deployment-control lens.'
+export CONTENT_MANUAL_COMPETITOR='lyzr'
+export CONTENT_MANUAL_EVIDENCE_URLS='https://www.lyzr.ai/blog/agents,https://www.stack-ai.com/blog/platforms'
 
+# generated covers use the local CreateOS design-system renderer
 # recommended public image hosting for generated covers
 # Cloudinary has a free plan; create a cloud and API key, then set:
 export CLOUDINARY_CLOUD_NAME='your-cloud-name'
@@ -89,6 +112,10 @@ go run ./cmd/worker
 ## 4) Output
 
 - Per-competitor sitemap stats and theme counts.
+- Date-less competitor tracking when `COMPETITOR_STATE_PATH` is set.
+  - This is the recommended mode for StackAI because its sitemap does not expose useful `<lastmod>` values.
+  - The first run stores a baseline.
+  - Later runs use `first_seen` freshness for newly observed URLs.
 - Ranked opportunities with:
   - title
   - why it matters
@@ -96,9 +123,21 @@ go run ./cmd/worker
   - how to execute
   - impact score (1-100)
 - Optional JSON report file via `COMPETITOR_REPORT_PATH`.
+- Full blog inventory and cannibalization findings via `inventoryReport`.
+- Search-performance opportunities and query cannibalization via `searchPerformance` when `SEO_PERFORMANCE_STATE_PATH` is configured.
+- Optional `refreshQueue` recommendations for volatile AI, comparison, workflow, integration, and pricing blogs.
+- Optional `aeoReport.prompts` matrix for manual ChatGPT/Perplexity/Gemini citation checks.
 - Optional content repo PR when GitHub/content repo env vars are set.
   - Generated blog frontmatter uses `destination: createos`.
+  - Every publishable route is forced to `/blogs/<slug>`; existing commercial routes are never created or replaced by this workflow.
+  - Existing keyword ownership produces a refresh/consolidate decision instead of a duplicate blog draft.
   - Generated cover images are uploaded to Cloudinary when Cloudinary env vars are configured.
   - Without Cloudinary, generated cover assets are committed under `covers/` only when `CONTENT_COVER_ASSET_BASE_URL` points at a public CDN.
+  - Every generated PR includes an automated SEO risk review in the PR body.
+  - High or critical SEO risk creates a `RISKY:` original PR plus a `MITIGATED:` companion PR. Humans should merge only one.
+- Optional manual content seed via `CONTENT_MANUAL_TITLE`.
+  - The workflow still fetches CreateOS and competitor sitemaps, reads CreateOS guidance docs, builds internal link candidates, generates the draft, generates/uploads the cover image, and opens the content PR through the same path.
+  - Any `CONTENT_MANUAL_SLUG` is normalized to `/blogs/<slug>`.
+  - Keep `COMPETITOR_CONTENT_DRAFT_LIMIT=1` for a single manual article, or raise it when you want automatic competitor-gap drafts as fallback candidates.
 - Treat the report as a heuristic input, not a source of truth.
 - Prioritize exact URL evidence and ignore low-specificity phrases.

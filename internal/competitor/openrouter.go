@@ -495,7 +495,7 @@ func blogDraftBriefUserPrompt(inputBytes []byte, createOSContext string, writing
 	if strings.TrimSpace(writingGuidelines) != "" {
 		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
 	}
-	return "Create a small SEO brief for each recommendation. Do not generate bodyMarkdown. Each draft object must include route, title, titleOptions, selectedTitleReason, metaDescription, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely strongest. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Every internalLinks targetPath must exactly match a path from internalLinkCandidates. Use status=existing for every internal link. Do not create planned links. Do not invent future routes, cluster routes, or links not present in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when relevant. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype, clickbait, unsupported numeric claims, generic AI wording, and unsupported product claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
+	return "Create a small SEO brief for each recommendation. Do not generate bodyMarkdown. Each draft object must include route, title, titleOptions, selectedTitleReason, metaDescription, internalLinks, cta, status. Generate 3-5 titleOptions before selecting title, except when lockTitle=true. If lockTitle=true, use the input title exactly as the draft title and include it as the first titleOptions item. Do not rewrite, reframe, or make the locked title punchier. Titles must hook readers while preserving search intent. Use one of these title patterns when appropriate: problem/tension, contrarian, value, story, or authority. Avoid bland titles like \"[Topic] with CreateOS\" unless that is genuinely strongest. Add a CreateOS-only SEO internal-link plan: internalLinks must include 3-5 links to createos.sh pages with anchorText, targetPath, placement, reason, and status. Every internalLinks targetPath must exactly match a path from internalLinkCandidates. Use status=existing for every internal link. Do not create planned links. Do not invent future routes, cluster routes, or links not present in internalLinkCandidates. Prefer specific /blogs/* and /case-studies/* candidates over generic hub pages when relevant. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype, clickbait, unsupported numeric claims, generic AI wording, and unsupported product claims." + contextInstruction + guidelinesInstruction + " status must be ai-generated-draft. JSON only. Data: " + string(inputBytes)
 }
 
 func blogDraftBodyUserPrompt(item blogDraftPromptItem, brief BlogDraft, briefBytes []byte, createOSContext string, writingGuidelines string) string {
@@ -508,7 +508,7 @@ func blogDraftBodyUserPrompt(item blogDraftPromptItem, brief BlogDraft, briefByt
 		guidelinesInstruction = " Use the CreateOS writing guidelines as style and quality rules. Apply them without copying them verbatim. Writing guidelines: " + strings.TrimSpace(writingGuidelines)
 	}
 	itemBytes, _ := json.Marshal(item)
-	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Body must read as polished blog prose, not an outline. Use paragraphs with clear transitions. Use bullets sparingly, max one bullet list. Each H2 section should have 2-4 paragraphs. Include an H1 matching the selected title, intro, 4-6 H2 sections, an honest tradeoffs section, and a closing CTA. Make it content-repo-ready publication markdown. Naturally include only the selected existing CreateOS internal links from the brief as markdown links where relevant. Do not add markdown links that are not present in the brief. Do not create external citation plans or third-party backlink outreach ideas. Do not use em dashes. Avoid hype/corporate language, generic AI tells, placeholder points, and unsupported absolute claims. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
+	return "Write the article body as markdown only. Do not wrap it in JSON. Do not use code fences. Include an H1 matching the selected title exactly, then ## The short version with a direct 40-60 word answer. Include 4-6 H2 sections, honest tradeoffs, and CTA. For substantive blog content, include ## Frequently asked questions with 5-8 real buyer questions and 2-3 sentence answers. Use one markdown decision/comparison table only when it materially clarifies tradeoffs or choices; never add a filler table. Make it polished prose, not an outline. Do not add external links or outreach ideas. Brief: " + string(briefBytes) + ". Recommendation input: " + string(itemBytes) + "." + contextInstruction + guidelinesInstruction
 }
 
 type blogDraftPromptItem struct {
@@ -520,6 +520,7 @@ type blogDraftPromptItem struct {
 	ContentAngle           string                  `json:"contentAngle"`
 	SourceEvidence         []string                `json:"sourceEvidence,omitempty"`
 	InternalLinkCandidates []InternalLinkCandidate `json:"internalLinkCandidates,omitempty"`
+	LockTitle              bool                    `json:"lockTitle,omitempty"`
 }
 
 func draftPromptInput(recommendations []ContentRecommendation, limit int, internalLinkInventory []InternalLinkCandidate) []blogDraftPromptItem {
@@ -527,6 +528,9 @@ func draftPromptInput(recommendations []ContentRecommendation, limit int, intern
 	for _, recommendation := range recommendations {
 		if len(items) == limit {
 			break
+		}
+		if recommendation.Decision != "" && recommendation.Decision != ContentDecisionCreate {
+			continue
 		}
 		route := strings.TrimSpace(recommendation.SuggestedSlug)
 		title := strings.TrimSpace(recommendation.SuggestedTitle)
@@ -541,6 +545,7 @@ func draftPromptInput(recommendations []ContentRecommendation, limit int, intern
 			Pillar:         recommendation.Pillar,
 			ContentAngle:   recommendation.ContentAngle,
 			SourceEvidence: limitStrings(recommendation.SourceEvidence, 3),
+			LockTitle:      IsManualContentRecommendation(recommendation),
 			InternalLinkCandidates: selectInternalLinkCandidatesForRecommendation(
 				recommendation,
 				internalLinkInventory,
@@ -581,6 +586,12 @@ func normalizeBlogDraftsAllowEmptyBody(drafts []BlogDraft, limit int) []BlogDraf
 }
 
 func normalizeBlogDraftBriefForItem(draft BlogDraft, item blogDraftPromptItem) BlogDraft {
+	draft.Route = strings.TrimSpace(item.Route)
+	if item.LockTitle {
+		draft.Title = strings.TrimSpace(item.Title)
+		draft.TitleOptions = normalizeTitleOptions(append([]string{item.Title}, draft.TitleOptions...), item.Title)
+		draft.SelectedTitleReason = "Manual title locked for search discoverability."
+	}
 	allowed := allowedInternalLinkPaths(item.InternalLinkCandidates)
 	links := normalizeSEOLinkSuggestions(draft.InternalLinks, 8)
 	filtered := make([]SEOLinkSuggestion, 0, len(links))

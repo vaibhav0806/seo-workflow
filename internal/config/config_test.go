@@ -71,6 +71,17 @@ func TestLoadOneshotModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, 1000, cfg.RowLimit)
 	require.Equal(t, 30, cfg.HTTPTimeoutSecs)
 	require.Equal(t, "public/sitemap.xml", cfg.GitHubSitemapPath)
+	require.Empty(t, cfg.PerformanceStatePath)
+}
+
+func TestLoadOneshotPerformanceStatePath(t *testing.T) {
+	setOneshotEnv(t)
+	t.Setenv("SEO_PERFORMANCE_STATE_PATH", "tmp/search-performance.json")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.Equal(t, "tmp/search-performance.json", cfg.PerformanceStatePath)
 }
 
 func TestLoadOneshotRequiresGitHubTokenWhenNotDryRun(t *testing.T) {
@@ -177,15 +188,34 @@ func TestLoadCompetitorModeSuccessDefaults(t *testing.T) {
 	require.Equal(t, 1, cfg.CompetitorContentDraftLimit)
 	require.Equal(t, "NodeOps-app/createos-content", cfg.ContentRepo)
 	require.Equal(t, "main", cfg.ContentBaseBranch)
-	require.Equal(t, "CreateOS", cfg.ContentAuthor)
+	require.Equal(t, "Naman Kabra", cfg.ContentAuthor)
 	require.Equal(t, "navedux,vaibhav0806", cfg.ContentReviewer)
 	require.NotEmpty(t, cfg.ContentCoverURL)
-	require.Equal(t, "google/gemini-2.5-flash-image", cfg.OpenRouterCoverModel)
-	require.Equal(t, "auto", cfg.ContentCoverStyle)
 	require.Empty(t, cfg.CloudinaryCloudName)
 	require.Empty(t, cfg.CloudinaryAPIKey)
 	require.Empty(t, cfg.CloudinaryAPISecret)
 	require.Equal(t, "createos/blog-covers", cfg.CloudinaryUploadFolder)
+	require.Empty(t, cfg.CompetitorStatePath)
+	require.Empty(t, cfg.AEOObservationsPath)
+	require.Empty(t, cfg.ContentInventoryPath)
+	require.Empty(t, cfg.PerformanceStatePath)
+	require.Empty(t, cfg.ManualContentTitle)
+	require.Empty(t, cfg.ManualContentEvidenceURLs)
+}
+
+func TestLoadManualContentModeDoesNotRequireSitemap(t *testing.T) {
+	t.Setenv("WORKER_MODE", "manual-content")
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("COMPETITOR_REPORT_PATH", "tmp/manual-content-report.json")
+	t.Setenv("CONTENT_MANUAL_TITLE", "MCP Server Security")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "manual-content", cfg.WorkerMode)
+	require.Equal(t, "MCP Server Security", cfg.ManualContentTitle)
 }
 
 func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
@@ -196,6 +226,10 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("OPENROUTER_DRAFT_MODEL", "qwen/qwen3.6-flash")
 	t.Setenv("OPENROUTER_DRAFT_FALLBACK_MODEL", "moonshotai/kimi-k2.5")
 	t.Setenv("COMPETITOR_REPORT_PATH", "competitor-report.json")
+	t.Setenv("COMPETITOR_STATE_PATH", "tmp/competitor-state.json")
+	t.Setenv("AEO_OBSERVATIONS_PATH", "tmp/aeo-observations.csv")
+	t.Setenv("CONTENT_INVENTORY_PATH", "../createos-content")
+	t.Setenv("SEO_PERFORMANCE_STATE_PATH", "tmp/search-performance.json")
 	t.Setenv("COMPETITOR_WINDOW_DAYS", "14")
 	t.Setenv("COMPETITOR_HTTP_TIMEOUT_SEC", "45")
 	t.Setenv("OPENROUTER_TOPIC_TIMEOUT_SEC", "240")
@@ -210,12 +244,16 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	t.Setenv("CONTENT_REVIEWER_GITHUB_HANDLE", "vaibhav")
 	t.Setenv("CONTENT_DEFAULT_COVER_URL", "https://example.com/cover.png")
 	t.Setenv("CONTENT_COVER_ASSET_BASE_URL", "https://cdn.example.com/createos-content")
-	t.Setenv("OPENROUTER_COVER_MODEL", "google/gemini-3.1-flash-image-preview")
-	t.Setenv("CONTENT_COVER_STYLE", "surreal-dreamscape")
 	t.Setenv("CLOUDINARY_CLOUD_NAME", "demo-cloud")
 	t.Setenv("CLOUDINARY_API_KEY", "cloudinary-key")
 	t.Setenv("CLOUDINARY_API_SECRET", "cloudinary-secret")
 	t.Setenv("CLOUDINARY_UPLOAD_FOLDER", "custom/covers")
+	t.Setenv("CONTENT_MANUAL_TITLE", "Top AI Agent Platforms for Enterprise Teams")
+	t.Setenv("CONTENT_MANUAL_THEME", "comparison")
+	t.Setenv("CONTENT_MANUAL_SLUG", "top-ai-agent-platforms")
+	t.Setenv("CONTENT_MANUAL_ANGLE", "Rank enterprise agent platforms through a CreateOS buyer lens.")
+	t.Setenv("CONTENT_MANUAL_COMPETITOR", "lyzr")
+	t.Setenv("CONTENT_MANUAL_EVIDENCE_URLS", "https://www.lyzr.ai/blog/agents, https://www.stack-ai.com/blog/platforms\nhttps://www.lyzr.ai/blog/agents")
 
 	cfg, err := Load()
 
@@ -227,6 +265,10 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "qwen/qwen3.6-flash", cfg.OpenRouterDraftModel)
 	require.Equal(t, "moonshotai/kimi-k2.5", cfg.OpenRouterDraftFallbackModel)
 	require.Equal(t, "competitor-report.json", cfg.CompetitorReportPath)
+	require.Equal(t, "tmp/competitor-state.json", cfg.CompetitorStatePath)
+	require.Equal(t, "tmp/aeo-observations.csv", cfg.AEOObservationsPath)
+	require.Equal(t, "../createos-content", cfg.ContentInventoryPath)
+	require.Equal(t, "tmp/search-performance.json", cfg.PerformanceStatePath)
 	require.Equal(t, 14, cfg.CompetitorWindowDays)
 	require.Equal(t, 45, cfg.HTTPTimeoutSecs)
 	require.Equal(t, 240, cfg.OpenRouterTopicTimeoutSecs)
@@ -241,12 +283,19 @@ func TestLoadCompetitorModeAllowsOverrides(t *testing.T) {
 	require.Equal(t, "vaibhav", cfg.ContentReviewer)
 	require.Equal(t, "https://example.com/cover.png", cfg.ContentCoverURL)
 	require.Equal(t, "https://cdn.example.com/createos-content", cfg.ContentCoverAssetBaseURL)
-	require.Equal(t, "google/gemini-3.1-flash-image-preview", cfg.OpenRouterCoverModel)
-	require.Equal(t, "surreal-dreamscape", cfg.ContentCoverStyle)
 	require.Equal(t, "demo-cloud", cfg.CloudinaryCloudName)
 	require.Equal(t, "cloudinary-key", cfg.CloudinaryAPIKey)
 	require.Equal(t, "cloudinary-secret", cfg.CloudinaryAPISecret)
 	require.Equal(t, "custom/covers", cfg.CloudinaryUploadFolder)
+	require.Equal(t, "Top AI Agent Platforms for Enterprise Teams", cfg.ManualContentTitle)
+	require.Equal(t, "comparison", cfg.ManualContentTheme)
+	require.Equal(t, "top-ai-agent-platforms", cfg.ManualContentSlug)
+	require.Equal(t, "Rank enterprise agent platforms through a CreateOS buyer lens.", cfg.ManualContentAngle)
+	require.Equal(t, "lyzr", cfg.ManualContentCompetitor)
+	require.Equal(t, []string{
+		"https://www.lyzr.ai/blog/agents",
+		"https://www.stack-ai.com/blog/platforms",
+	}, cfg.ManualContentEvidenceURLs)
 }
 
 func TestLoadCompetitorModeMissingRequiredEnv(t *testing.T) {

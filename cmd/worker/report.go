@@ -128,11 +128,13 @@ func writeOneshotReport(cfg *config.Config, summary scan.Summary) error {
 
 func logCompetitorSummary(summary competitor.Summary) {
 	log.Printf(
-		"competitor summary: window_days=%d our_recent=%d competitors=%d opportunities=%d warnings=%d",
+		"competitor summary: window_days=%d our_recent=%d competitors=%d opportunities=%d refresh_queue=%d aeo_prompts=%d warnings=%d",
 		summary.WindowDays,
 		summary.OurSite.RecentURLCount,
 		len(summary.Competitors),
 		len(summary.Opportunities),
+		len(summary.RefreshQueue),
+		len(summary.AEOReport.Prompts),
 		len(summary.Warnings),
 	)
 	for _, competitorSnapshot := range summary.Competitors {
